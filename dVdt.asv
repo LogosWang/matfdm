@@ -1,0 +1,19 @@
+function dV_dt = dVdt(J_V,dx,dose_rate,recom_rate)
+[nJ,ny]=size(J_V);
+nx = nJ+1;
+grad_J = zeros(nx);
+for i = 1:nx
+    if i == nx
+        J_ghost = -J_V(i);
+        grad_J(i) = (-J_NiNi_V(i)+J_ghost)/dx;
+    elseif i == nx
+        grad_J = 0.0;
+    else
+        grad_J = (J_NiNi_V(i)-J_NiNi_V(i-1))/dx;
+    end
+    XNi=CFe/(CCr+CFe+CNi);
+    r = (1.0-CCr-CFe-CNi)*XNi/(1e-4);
+    dNi_dt = -grad_J+r;
+    dNi_dt(nx) = 0.0;
+
+end
