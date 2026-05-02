@@ -1,18 +1,18 @@
+
 dim = 1
 nx = 100
 ny = 1
-dt = 0.0001
-GBrecovert=dt;
+dt = 0.00001
+GBrecovert=0.8*dt;
 current_t = 0.0
 current_tstep = 0
-dv_dt = 0.0 
 
 dx = 0.1
-V_init = 1e-12
-V_DBC = 1e-12
-DCrV = 1e4;
-DFeV = 2e3;
-DNiV = 4e2;
+V_init = 1e-10
+V_DBC = 1e-10
+DCrV = 1e3;
+DFeV = 2e2;
+DNiV = 4e1;
 dose_rate = 1e-6;
 recomb_rate = 1e4;
 DV = [DCrV, DFeV, DNiV]
@@ -34,7 +34,7 @@ Fe_DCB = 0.72;
 
 V=ones(1,nx)
 V=V*V_init
-t_end = 1e6;
+t_end = 100.0;
 while current_t < t_end
     V(1) = V_DBC;
     CCr(nx) = Cr_DCB;
@@ -54,7 +54,7 @@ while current_t < t_end
     CNi = CNi+dNi_dt*dt;
     current_t = current_t+dt;
     current_tstep = current_tstep + 1;
-    if mod(current_tstep,1000000) == 0
+    if mod(current_tstep,10000) == 0
 
         writematrix(V, ['V', num2str(current_tstep), '.csv'])
         writematrix(CCr, ['Cr', num2str(current_tstep), '.csv'])
@@ -65,3 +65,26 @@ while current_t < t_end
     end
 end
 
+
+x=linspace(0,9.9,100)
+figure(1)
+plot(x,V, 'LineWidth', 3)
+xlabel('x (nm)', 'FontSize', 24)
+ylabel('Vacancy Concentration (%)', 'FontSize', 24)
+set(gca, 'FontSize', 20)
+% title('Concentration Profile', 'FontSize', 18)
+figure(2)
+plot(x,CCr, 'LineWidth', 3)
+xlabel('x (nm)', 'FontSize', 24)
+ylabel('Cr Concentration (%)', 'FontSize', 24)
+set(gca, 'FontSize', 20)
+figure(3)
+plot(x,CFe, 'LineWidth', 3)
+xlabel('x (nm)', 'FontSize', 24)
+ylabel('Cr Concentration (%)', 'FontSize', 24)
+set(gca, 'FontSize', 20)
+figure(4)
+plot(x,CNi, 'LineWidth', 3)
+xlabel('x (nm)', 'FontSize', 24)
+ylabel('Ni Concentration (%)', 'FontSize', 24)
+set(gca, 'FontSize', 20)

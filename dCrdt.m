@@ -7,11 +7,11 @@ for i = 1:nx
         J_ghost = -J_CrCr_V(i);
         grad_J(i) = (J_CrCr_V(i)-J_ghost)/dx;
     elseif i == nx
-        grad_J = 0.0;
+        grad_J(i) = 0.0;
     else
-        grad_J = (J_CrCr_V(i)-J_CrCr_V(i-1))/dx;
+        grad_J(i) = (J_CrCr_V(i)-J_CrCr_V(i-1))/dx;
     end
-    XCr=CFe/(CCr+CFe+CNi);
+    XCr=CCr/(CCr+CFe+CNi);
     r = (1.0-CCr-CFe-CNi).*XCr/(GBrecovert);
     dCr_dt = -grad_J+r;
     dCr_dt(nx) = 0.0;
