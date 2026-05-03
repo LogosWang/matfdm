@@ -11,11 +11,9 @@ for i = 1:nx
     else
         grad_J(i) = (J_FeFe_V(i)-J_FeFe_V(i-1))/dx;
     end
-    XFe=CFe/(CCr+CFe+CNi);
-    r = (1.0-CCr-CFe-CNi).*XFe/(GBrecovert);
-    dFe_dt = -grad_J+r;
-    dFe_dt(nx)=0.0;
-    
 end
-
+XFe=CFe/(CCr+CFe+CNi);
+r = (1.0-CCr-CFe-CNi).*XFe/(GBrecovert);
+dFe_dt = -grad_J+r;
+dFe_dt(nx)=0.0;
 end

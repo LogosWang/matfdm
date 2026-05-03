@@ -11,10 +11,9 @@ for i = 1:nx
     else
         grad_J(i) = (J_CrCr_V(i)-J_CrCr_V(i-1))/dx;
     end
-    XCr=CCr/(CCr+CFe+CNi);
-    r = (1.0-CCr-CFe-CNi).*XCr/(GBrecovert);
-    dCr_dt = -grad_J+r;
-    dCr_dt(nx) = 0.0;
 end
-
+XCr=CCr/(CCr+CFe+CNi);
+r = (1.0-CCr-CFe-CNi).*XCr/(GBrecovert);
+dCr_dt = -grad_J+r;
+dCr_dt(nx) = 0.0;
 end

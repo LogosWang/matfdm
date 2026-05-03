@@ -11,11 +11,10 @@ for i = 1:nx
     else
         grad_J(i) = (J_NiNi_V(i)-J_NiNi_V(i-1))/dx;
     end
-    XNi=CCr/(CCr+CFe+CNi);
-    r = (1.0-CCr-CFe-CNi).*XNi/(GBrecovert);
-    dNi_dt = -grad_J+r;
-    dNi_dt(nx) = 0.0;
-
 end
+XNi=CCr/(CCr+CFe+CNi);
+r = (1.0-CCr-CFe-CNi).*XNi/(GBrecovert);
+dNi_dt = -grad_J+r;
+dNi_dt(nx) = 0.0;
 
 end
