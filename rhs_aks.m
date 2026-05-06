@@ -17,12 +17,20 @@ CNi(nx) = p.Ni_DCB;
 J_CrCr_V = JCrCrV(CCr, V, p.DV, p.dx);
 J_FeFe_V = JFeFeV(CFe, V, p.DV, p.dx);
 J_NiNi_V = JNiNiV(CNi, V, p.DV, p.dx);
-J_V      = JV(J_CrCr_V, J_FeFe_V, J_NiNi_V);
-
+J_V_diff      = JV(J_CrCr_V, J_FeFe_V, J_NiNi_V);
+lattice_velocity = J_V_diff;
+J_Cr_drift = JCrdrift(lattice_velocity,CCr);
+J_Fe_drift = JFedrift(lattice_velocity,CFe);
+J_Ni_drift = JNidrift(lattice_velocity,CNi);
+J_V_drift = JVdrift(lattice_velocity,V);
+J_Cr = J_CrCr_V+J_Cr_drift;
+J_Ni = J_NiNi_V+J_Ni_drift;
+J_Fe = J_FeFe_V+J_Fe_drift;
+J_V=J_V_diff;
 % 时间导数
-dCr = dCrdt(J_CrCr_V, p.dx, CCr, CFe, CNi, p.GBrecovert);
-dFe = dFedt(J_FeFe_V, p.dx, CCr, CFe, CNi, p.GBrecovert);
-dNi = dNidt(J_NiNi_V, p.dx, CCr, CFe, CNi, p.GBrecovert);
+dCr = dCrdt(J_Cr, p.dx, CCr, CFe, CNi, p.GBrecovert);
+dFe = dFedt(J_Fe, p.dx, CCr, CFe, CNi, p.GBrecovert);
+dNi = dNidt(J_Ni, p.dx, CCr, CFe, CNi, p.GBrecovert);
 dV  = dVdt (J_V,      p.dx, V,   p.dose_rate, p.recomb_rate);
 
 % Dirichlet 导数置零
