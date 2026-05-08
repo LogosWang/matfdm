@@ -16,17 +16,17 @@ CFe(nx) = p.Fe_DCB;
 CNi(nx) = p.Ni_DCB;
 CSi(nx) = p.Si_DCB;
 % 通量
-J_CrCr_V = JCrCrV(CCr, V, p.DV, p.dx);
-J_FeFe_V = JFeFeV(CFe, V, p.DV, p.dx);
-J_NiNi_V = JNiNiV(CNi, V, p.DV, p.dx);
-J_SiSi_V = JSiSiV(CSi, V, p.DV, p.dx);
-J_V_diff  = JV(J_CrCr_V, J_FeFe_V, J_NiNi_V, J_SiSi_V);
+J_Cr_V = JCrV(CCr,CFe,CNi,CSi,V,p.DV,p.f0V, p.dx);
+J_Fe_V = JFeV(CCr,CFe,CNi,CSi,V,p.DV,p.f0V, p.dx);
+J_Ni_V = JNiV(CCr,CFe,CNi,CSi,V,p.DV,p.f0V, p.dx);
+J_Si_V = JSiV(CCr,CFe,CNi,CSi,V,p.DV,p.f0V, p.dx);
+J_V_diff  = JV(J_Cr_V, J_Fe_V, J_Ni_V, J_Si_V);
 
-J_CrCr_I = JCrCrI(CCr, I, p.DI, p.dx);
-J_FeFe_I = JFeFeI(CFe, I, p.DI, p.dx);
-J_NiNi_I = JNiNiI(CNi, I, p.DI, p.dx);
-J_SiSi_I = JSiSiI(CSi, I, p.DI, p.dx);
-J_I_diff  = JI(J_CrCr_I, J_FeFe_I, J_NiNi_I, J_SiSi_I);
+J_Cr_I = JCrI(CCr,CFe,CNi,CSi,I,p.DI,p.f0I, p.dx);
+J_Fe_I = JFeI(CCr,CFe,CNi,CSi,I,p.DI,p.f0I, p.dx);
+J_Ni_I = JNiI(CCr,CFe,CNi,CSi,I,p.DI,p.f0I, p.dx);
+J_Si_I = JSiI(CCr,CFe,CNi,CSi,I,p.DI,p.f0I, p.dx);
+J_I_diff  = JI(J_Cr_I, J_Fe_I, J_Ni_I, J_Si_I);
 
 lattice_velocity = J_V_diff-J_I_diff;
 
@@ -35,10 +35,10 @@ J_Fe_drift = JFedrift(lattice_velocity,CFe);
 J_Ni_drift = JNidrift(lattice_velocity,CNi);
 J_Si_drift = JSidrift(lattice_velocity,CSi);
 % J_V_drift = JVdrift(lattice_velocity,V);
-J_Cr = J_CrCr_V+J_CrCr_I+J_Cr_drift;
-J_Ni = J_NiNi_V+J_NiNi_I+J_Ni_drift;
-J_Fe = J_FeFe_V+J_FeFe_I+J_Fe_drift;
-J_Si = J_SiSi_V+J_SiSi_I+J_Si_drift;
+J_Cr = J_Cr_V+J_Cr_I+J_Cr_drift;
+J_Ni = J_Ni_V+J_Ni_I+J_Ni_drift;
+J_Fe = J_Fe_V+J_Fe_I+J_Fe_drift;
+J_Si = J_Si_V+J_Si_I+J_Si_drift;
 J_V=J_V_diff;
 J_I=J_I_diff;
 % 时间导数

@@ -22,6 +22,8 @@ DFeI = 1e2;
 DNiI = 2e2;
 DSiI = 1e6;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
+p.f0V = 0.8;
+p.f0I = 0.9;
 p.dose_rate   = 1e-8;
 p.recomb_rate = 1e4;
 
