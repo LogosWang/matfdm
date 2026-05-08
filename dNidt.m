@@ -1,4 +1,4 @@
-function dNi_dt = dNidt(J_Ni,dx,CCr,CFe,CNi,GBrecovert)
+function dNi_dt = dNidt(J_Ni,dx)
 [ny,nJ]=size(J_Ni);
 nx = nJ+1;
 grad_J = zeros(1,nx);
@@ -12,8 +12,7 @@ for i = 1:nx
         grad_J(i) = (J_Ni(i)-J_Ni(i-1))/dx;
     end
 end
-% XNi=CCr/(CCr+CFe+CNi);
-% r = (1.0-CCr-CFe-CNi).*XNi/(GBrecovert);
+
 dNi_dt = -grad_J;
 dNi_dt(nx) = 0.0;
 

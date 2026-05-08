@@ -1,6 +1,6 @@
 function J_NiNi_V = JNiNiV(CNi,V,DV,dx)
 [ny,nx]=size(CNi);
-L_V_init=zeros(3,3);
+L_V_init=zeros(4,4);
 log_CNi=log(CNi);
 log_V=log(V);
 J_NiNi_V = zeros(1,nx-1);

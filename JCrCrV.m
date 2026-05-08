@@ -1,6 +1,6 @@
 function J_CrCr_V = JCrCrV(CCr,V,DV,dx)
 [ny,nx]=size(CCr);
-L_V_init=zeros(3,3);
+L_V_init=zeros(4,4);
 log_CCr=log(CCr);
 log_V=log(V);
 J_CrCr_V = zeros(1,nx-1);

@@ -1,4 +1,4 @@
-function dFe_dt = dFedt(J_Fe,dx,CCr,CFe,CNi,GBrecovert)
+function dFe_dt = dFedt(J_Fe,dx)
 [ny,nJ]=size(J_Fe);
 nx = nJ+1;
 grad_J = zeros(1,nx);
@@ -12,8 +12,7 @@ for i = 1:nx
         grad_J(i) = (J_Fe(i)-J_Fe(i-1))/dx;
     end
 end
-% XFe=CFe/(CCr+CFe+CNi);
-% r = (1.0-CCr-CFe-CNi).*XFe/(GBrecovert);
+
 dFe_dt = -grad_J;
 dFe_dt(nx)=0.0;
 end
