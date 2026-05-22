@@ -1,4 +1,5 @@
 function dydt = rhs_aks(t, y, p)
+
 nx = p.nx;
 ny = p.ny;
 N  = nx * ny;          % 单场长度

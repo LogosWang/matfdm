@@ -1,13 +1,13 @@
 %% 参数（全部挂在 p 下）
 p.dim   = 2;
-p.nx    = 50;
-p.ny    = 50;
+p.nx    = 200;
+p.ny    = 200;
 
 p.dt    = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;       % 显式 Euler 用；ode15s 也会用这个值
-p.dx    = 0.5;
-p.dy = 1;
-p.t_end = 100000000.0;
+p.dx    = 0.25;
+p.dy = 0.05;
+p.t_end = 1e8;
 
 p.V_init = 1e-13;
 p.V_DBC  = 1e-13;
@@ -26,7 +26,7 @@ DSiI = 5e8;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.8;
 p.f0I = 0.7;
-p.dose_rate   = 1e-8;
+p.dose_rate   = 5e-8;
 p.recomb_rate = 1e4;
 
 p.Cr_init = 0.18;   p.Cr_DCB = 0.18;
@@ -39,11 +39,11 @@ p.NiO_init = 0.0;
 p.SiO2_init = 0.0;
 p.kCr = 1e-7;
 p.kSi = 1e-7;
-p.kNi = 1e-7;
+p.kNi = 7e-8;
 p.DO0 = 1e-8;
 p.DOmax = 10;
 p.alpha = 2.0;
-p.oxide_character = 0.1;
+p.oxide_character = 0.08;
 p.solver = 1;          % 0 = 显式 Euler；1 = ode15s
 
 %% 初值（行向量，把 BC 值塞到端点）
@@ -121,17 +121,19 @@ assert(length(y0) == M, '初值向量长度不匹配');
 % AbsTol 分场
 absTol = zeros(M, 1);
 absTol(      1 :  2*N)              = 1e-16;       % V / I
-absTol(2*N + 1 :  6*N)              = 1e-8;        % CCr / CFe / CNi / CSi
-absTol(6*N + 1 :  6*N + p.ny)       = 1e-12;       % CO
-absTol(6*N + p.ny + 1 : M)          = 1e-12;       % 三个氧化物
+absTol(2*N + 1 :  6*N)              = 1e-4;        % CCr / CFe / CNi / CSi
+absTol(6*N + 1 :  6*N + p.ny)       = 1e-5;       % CO
+absTol(6*N + p.ny + 1 : M)          = 1e-3;       % 三个氧化物
 
 opts = odeset( ...
-    'RelTol',      1e-6, ...
+    'RelTol',      1e-4, ...
     'AbsTol',      absTol, ...
-    'NonNegative', 1:M, ...
+    'NonNegative', 1:6*N, ...
     'JPattern',    jpattern_aks(p.nx, p.ny), ...
-    'Stats',       'on');
+    'Stats',       'on', ...
+    'OutputFcn',   @(t,y,flag) myprogress(t,y,flag,p.t_end));
 
+disp(opts.OutputFcn) 
 fprintf('Starting ode15s...\n');
 tic;
 sol = ode15s(@(t,y) rhs_aks(t,y,p), [0 p.t_end], y0, opts);
