@@ -14,8 +14,9 @@ CSi = reshape(y(5*N + 1 : 6*N), ny, nx);
 base   = 6 * N;
 CO     = y(base +        1 : base +   ny);
 CCr2O3 = y(base +   ny + 1 : base + 2*ny);
-CNiO   = y(base + 2*ny + 1 : base + 3*ny);
-CSiO2  = y(base + 3*ny + 1 : base + 4*ny);
+CFe3O4   = y(base + 2*ny + 1 : base + 3*ny);
+CNiO   = y(base + 3*ny + 1 : base + 4*ny);
+CSiO2  = y(base + 4*ny + 1 : base + 5*ny);
 % 强制 Dirichlet（按整条边，不再是单点）
 V(:, 1)    = p.V_DBC;
 I(:, 1)    = p.I_DBC;
@@ -36,8 +37,17 @@ CO(1,1) = p.O_DCB;
 [J_Ni_I_x,J_Ni_I_y] = J_via_medium(3,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
 [J_Si_I_x,J_Si_I_y] = J_via_medium(4,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
 [J_I_diff_x,J_I_diff_y]  = JI(J_Cr_I_x,J_Cr_I_y, J_Fe_I_x, J_Fe_I_y, J_Ni_I_x, J_Ni_I_y, J_Si_I_x, J_Si_I_y);
+J_r_Cr = Jreaction(CCr,CO,p.kCr,2/3,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
+J_r_Fe = Jreaction(CFe,CO,p.kFe,3/4,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
+J_r_Ni = Jreaction(CNi,CO,p.kNi,1,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
+J_r_Si = Jreaction(CSi,CO,p.kSi,1/2,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
+
 
 lattice_velocity_x = J_V_diff_x-J_I_diff_x;
+[ny1,nx1]=size(lattice_velocity_x);
+for i = 1 : nx1
+    lattice_velocity_x(:,i) = lattice_velocity_x(:,i)+J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si;
+end
 lattice_velocity_y = J_V_diff_y-J_I_diff_y;
 [J_Cr_drift_x,J_Cr_drift_y] = Jdrift(lattice_velocity_x,lattice_velocity_y,CCr);
 [J_Fe_drift_x,J_Fe_drift_y] = Jdrift(lattice_velocity_x,lattice_velocity_y,CFe);
@@ -57,18 +67,19 @@ J_Fe_y = J_Fe_V_y+J_Fe_I_y+J_Fe_drift_y;
 J_Si_y  = J_Si_V_y+J_Si_I_y+J_Si_drift_y;
 J_V_y=J_V_diff_y;
 J_I_y=J_I_diff_y;
-J_O= JO(CO,CCr2O3,CNiO,CSiO2,p.alpha,p.DO0,p.DOmax,p.oxide_character,p.dy);
+J_O= JO(CO,CCr2O3,CFe3O4,CNiO,CSiO2,p.DO0,p.slab,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,p.dy);
 % 时间导数
-dCr = dsolutedt(J_Cr_x, J_Cr_y, p.dx, p.dy,CCr,CO,p.kCr,2);
-dFe = dsolutedt(J_Fe_x, J_Fe_y, p.dx, p.dy,CFe,CO,0.0,0);
-dNi = dsolutedt(J_Ni_x, J_Ni_y, p.dx, p.dy,CNi,CO,p.kNi,1);
-dSi = dsolutedt(J_Si_x, J_Si_y, p.dx, p.dy,CSi,CO,p.kSi,1);
-dV  = dVdt (J_V_x,J_V_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate);
-dI  =  dIdt (J_I_x,J_I_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate);
-dO = dOdt(CCr,CFe,CNi,CSi,CO,J_O,p.kCr,p.kNi,p.kSi,p.dy);
-dCr2O3 = reaction(CO,CCr,p.kCr);
-dNiO = reaction(CO,CNi,p.kNi);
-dSiO2 = reaction(CO,CSi,p.kSi);
+dCr = dsolutedt(J_Cr_x, J_Cr_y, p.dx, p.dy,J_r_Cr);
+dFe = dsolutedt(J_Fe_x, J_Fe_y, p.dx, p.dy,J_r_Fe);
+dNi = dsolutedt(J_Ni_x, J_Ni_y, p.dx, p.dy,J_r_Ni);
+dSi = dsolutedt(J_Si_x, J_Si_y, p.dx, p.dy,J_r_Si);
+dV  = dVdt (J_V_x,J_V_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate, p.V_init);
+dI  =  dIdt (J_I_x,J_I_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate, p.I_init);
+dO = dOdt(CCr,CFe,CNi,CSi,CO,J_O,p.kCr,p.kFe,p.kNi,p.kSi,p.dy,p.slab,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
+dCr2O3 = reaction(CO,CCr,p.kCr,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2,p.Nden,p.Cr2O3mass,p.NA,p.Cr2O3den);
+dFe3O4 = reaction(CO,CFe,p.kFe,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2,p.Nden,p.Fe3O4mass,p.NA,p.Fe3O4den);
+dNiO = reaction(CO,CNi,p.kNi,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2,p.Nden,p.NiOmass,p.NA,p.NiOden);
+dSiO2 = reaction(CO,CSi,p.kSi,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2,p.Nden,p.SiO2mass,p.NA,p.SiO2den);
 % Dirichlet 导数置零
 dV(:,1)    = 0;
 dI(:,1)      = 0;
@@ -78,5 +89,23 @@ dNi(:,nx)  = 0;
 dSi(:,nx)  = 0;
 dO(1,1) = 0;
 % 打包：行 -> 列
-dydt = [dV(:); dI(:);dCr(:); dFe(:); dNi(:); dSi(:); dO(:);dCr2O3(:);dNiO(:);dSiO2(:)];
+dydt = [dV(:); dI(:);dCr(:); dFe(:); dNi(:); dSi(:); dO(:);dCr2O3(:);dFe3O4(:);dNiO(:);dSiO2(:)];
+
+
+% rhs_aks.m 最后, return 之前
+if any(~isfinite(dydt))
+    bad = find(~isfinite(dydt));
+    fprintf('t=%.4e  NaN/Inf at %d indices, first few: ', t, numel(bad));
+    fprintf('%d ', bad(1:min(5,end)));
+    fprintf('\n');
+    fprintf('  min C: Cr=%g Fe=%g Ni=%g Si=%g O=%g\n', ...
+        min(CCr(:)), min(CFe(:)), min(CNi(:)), min(CSi(:)), min(CO(:)));
+    fprintf('  min V=%g I=%g\n', min(V(:)), min(I(:)));
+end
+
+% [mx, kx] = max(abs(dydt));
+% [Cmn_Cr, iCr] = min(CCr(:));
+% [Cmn_Si, iSi] = min(CSi(:));
+% fprintf('t=%.4e  max|dydt|=%.3e at idx %d   minCr=%.3e@%d  minSi=%.3e@%d  minV=%.3e  minI=%.3e\n', ...
+%         t, mx, kx, Cmn_Cr, iCr, Cmn_Si, iSi, min(V(:)), min(I(:)));
 end

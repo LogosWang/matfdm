@@ -1,4 +1,4 @@
-function dSdt = dsolutedt(J_S_x,J_S_y,dx,dy,Ci,CO,k,consume)
+function dSdt = dsolutedt(J_S_x,J_S_y,dx,dy,J_r)
 [ny,nx]=size(J_S_x);
 nx = nx+1;
 div_J = zeros(ny,nx);
@@ -8,7 +8,8 @@ for i = 1:nx
     for j = 1:ny
     if i == 1
         J_ghost = -J_S_x(j,i);
-        grad_J_x(j,i) = (J_S_x(j,i)-J_ghost)/dx;
+        
+        grad_J_x(j,i) = (J_S_x(j,i)-J_ghost)/dx-J_r(j,1)/(0.5*dx);
     elseif i == nx
         grad_J_x(j,i) = 0.0;
     else
@@ -27,6 +28,5 @@ for i = 1:nx
     end
  div_J = grad_J_y+grad_J_x;    
 dSdt = -div_J;
-dSdt(:,1) = dSdt(:,1)-consume*k*Ci(:,1).*CO(:,1);
 dSdt(:,nx) = 0.0;
 end
