@@ -17,7 +17,7 @@ for i = 1:ny
     kFe_eff = effectivek(CFe(i,1),kFe,DCr2O3,DFe3O4,DNiO,DSiO2,CCr2O3(i,1),CFe3O4(i,1),CNiO(i,1),CSiO2(i,1));
     kNi_eff = effectivek(CNi(i,1),kNi,DCr2O3,DFe3O4,DNiO,DSiO2,CCr2O3(i,1),CFe3O4(i,1),CNiO(i,1),CSiO2(i,1));
     kSi_eff = effectivek(CSi(i,1),kSi,DCr2O3,DFe3O4,DNiO,DSiO2,CCr2O3(i,1),CFe3O4(i,1),CNiO(i,1),CSiO2(i,1));
-    dO(i,1) = -grad(i,1)+(-3*kCr_eff*CO(i,1)-4*kFe_eff*CO(i,1)-kNi_eff*CO(i,1)-2*kSi_eff*CO(i,1))/slab;
+    dO(i,1) = -grad(i,1)+(-kCr_eff*CO(i,1)-kFe_eff*CO(i,1)-kNi_eff*CO(i,1)-kSi_eff*CO(i,1))/slab;
 end
 dO(1,1) = 0.0;
 

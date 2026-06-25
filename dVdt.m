@@ -1,4 +1,4 @@
-function dV_dt = dVdt(J_V_x,J_V_y,dx,dy,I,V,dose_rate,recom_rate,Veq)
+function dV_dt = dVdt(J_V_x,J_V_y,dx,dy,I,V,dose_rate,recom_rate,Veq,Ieq,Ks)
 [ny,nx]=size(J_V_x);
 nx = nx+1;
 grad_J_x = zeros(ny,nx);
@@ -27,7 +27,7 @@ for i = 1:nx
 end
 div_J= grad_J_y+grad_J_x;
 
-    dV_dt = -div_J+dose_rate-recom_rate*I.*(V-Veq);
+    dV_dt = -div_J+dose_rate-recom_rate*(I.*V-Ieq*Veq)+Ks*(Veq-V);
     dV_dt(:,1) = 0.0;
 
 end

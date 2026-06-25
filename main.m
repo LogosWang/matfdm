@@ -13,7 +13,7 @@ p.V_init = 1e-13;
 p.V_DBC  = 1e-13;
 p.I_init = 1e-13;
 p.I_DBC  = 1e-13;
-
+p.Ks = 1e-3;
 DCrV = 4.55e4;
 DFeV = 3.61e4;
 DNiV = 2.68e4;
@@ -26,7 +26,7 @@ DSiI = 3e4;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.8;
 p.f0I = 0.7;
-p.dose_rate   = 1e-7;
+p.dose_rate   = 0.0;
 p.recomb_rate = 1e4;
 
 p.Cr_init = 0.18;   p.Cr_DCB = 0.18;
@@ -160,6 +160,13 @@ Fe3O4_t      = Y(base +  2*ny + 1 : base +  3*ny, :);
 NiO_t      = Y(base +  3*ny + 1 : base +  4*ny, :);
 SiO2_t     = Y(base +  4*ny + 1 : base +  5*ny, :);
 
+
+% --- 落盘：完整时间轨迹 ---
+save('fields_timeseries.mat', ...
+     'V_t','I_t','Cr_t','Fe_t','Ni_t','Si_t', ...
+     'O_t','Cr2O3_t','Fe3O4_t','NiO_t','SiO2_t', ...
+     '-v7.3');
+
 % --- 落盘：最终时刻快照 ---
 writematrix(V_t  (:,:,end),  'V_final.csv');
 writematrix(I_t  (:,:,end),  'I_final.csv');
@@ -212,39 +219,51 @@ for f = 1:6
     legend('show', 'Location', 'best', 'FontSize', 14);
 end
 
-%% --- 图 7-12：最终时刻 2D 热图 ---
-for f = 1:6
-    figure(6+f); clf;
-    imagesc(x, y, fields_2D{f}(:,:,end));
-    set(gca, 'YDir', 'normal');
-    axis equal tight; colorbar;
-    xlabel('x (nm)', 'FontSize', 20)
-    ylabel('y (nm)', 'FontSize', 20)
-    title([labels_2D{f} ' at dose = 1'], 'FontSize', 20)
-    set(gca, 'FontSize', 16)
+% %% --- 图 7-12：最终时刻 2D 热图 ---
+% for f = 1:6
+%     figure(6+f); clf;
+%     imagesc(x, y, fields_2D{f}(:,:,end));
+%     set(gca, 'YDir', 'normal');
+%     axis equal tight; colorbar;
+%     xlabel('x (nm)', 'FontSize', 20)
+%     ylabel('y (nm)', 'FontSize', 20)
+%     title([labels_2D{f} ' at dose = 1'], 'FontSize', 20)
+%     set(gca, 'FontSize', 16)
+% end
+
+%% --- 图 13-16：1D 场（O 和 4 个氧化物）沿 y 的 profile，不同 dose ---
+% --- 氧浓度 O：单独画 ---
+figure(13); clf; hold on; box on;
+for k = 1:numel(idx)
+    i = idx(k);
+    plot(y, O_t(:, i), 'LineWidth', 2.5, ...
+        'Color', colors(k, :), ...
+        'DisplayName', sprintf('dose = %.2g', (i-1)/100));
 end
+xlabel('y (nm) — along GB', 'FontSize', 24)
+ylabel('O Concentration', 'FontSize', 24)
+set(gca, 'FontSize', 20)
+legend('show', 'Location', 'best', 'FontSize', 14);
 
-%% --- 图 13-16：1D 场（O 和 3 个氧化物）沿 y 的 profile，不同 dose ---
-fields_1D = {O_t,  Cr2O3_t, Fe3O4_t, NiO_t, SiO2_t};
-labels_1D = {'O', 'Cr_2O_3', 'Fe3O4', 'NiO', 'SiO_2'};
-
-for f = 1:5
-    figure(12+f); clf; hold on; box on;
+% --- 氧化物厚度：Cr2O3 / Fe3O4 / NiO / SiO2 ---
+oxides_1D = {Cr2O3_t, Fe3O4_t, NiO_t, SiO2_t};
+oxide_lbl = {'Cr_2O_3', 'Fe_3O_4', 'NiO', 'SiO_2'};
+for f = 1:4
+    figure(14+f); clf; hold on; box on;
     for k = 1:numel(idx)
         i = idx(k);
-        profile = fields_1D{f}(:, i);                  % ny × 1
-        plot(y, profile, 'LineWidth', 2.5, ...
-             'Color', colors(k, :), ...
-             'DisplayName', sprintf('dose = %.2g', (i-1)/100));
+        plot(y, oxides_1D{f}(:, i), 'LineWidth', 2.5, ...
+            'Color', colors(k, :), ...
+            'DisplayName', sprintf('dose = %.2g', (i-1)/100));
     end
     xlabel('y (nm) — along GB', 'FontSize', 24)
-    ylabel([labels_1D{f} ' Concentration'], 'FontSize', 24)
+    ylabel([oxide_lbl{f} ' thickness (nm)'], 'FontSize', 24)
     set(gca, 'FontSize', 20)
     legend('show', 'Location', 'best', 'FontSize', 14);
 end
 
 %% --- 图 17：所有氧化物在最终时刻叠加（直接看占比）---
-figure(17); clf; hold on; box on;
+figure(19); clf; hold on; box on;
 plot(y, Cr2O3_t(:, end), 'LineWidth', 3, 'DisplayName', 'Cr_2O_3');
 plot(y, Fe3O4_t(:, end),   'LineWidth', 3, 'DisplayName', 'Fe3O4');
 plot(y, NiO_t(:, end),   'LineWidth', 3, 'DisplayName', 'NiO');
@@ -257,7 +276,7 @@ set(gca, 'FontSize', 20)
 legend('show', 'Location', 'best', 'FontSize', 14);
 
 %% --- 图 18：氧化前沿可视化（O 浓度的 log 热图，时间 vs y）---
-figure(18); clf;
+figure(20); clf;
 imagesc(t_out, y, log10(max(O_t, 1e-20)));    % log scale，钳零防 -Inf
 set(gca, 'YDir', 'normal');
 colorbar;
@@ -267,7 +286,7 @@ title('log_{10}(C_O) over time', 'FontSize', 20)
 set(gca, 'FontSize', 16)
 
 %% --- 图 19：Cr_2O_3 累积的时间-空间图（看前沿推进）---
-figure(19); clf;
+figure(21); clf;
 imagesc(t_out, y, Cr2O3_t);
 set(gca, 'YDir', 'normal');
 colorbar;
