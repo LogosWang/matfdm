@@ -25,8 +25,8 @@ for i = 1:nx
         grad_J_y(j,i) = (J_S_y(j,i)-J_S_y(j-1,i))/dy;
     end
     end
-    end
- div_J = grad_J_y+grad_J_x;    
+end
+div_J = grad_J_y+grad_J_x;    
 dSdt = -div_J;
 dSdt(:,nx) = 0.0;
 end

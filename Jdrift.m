@@ -1,7 +1,8 @@
 function [J_drift_x,J_drift_y] = Jdrift(lattice_velocity_x,lattice_velocity_y,C)
 [ny,nx]=size(C);
 J_drift_x = zeros(ny,   nx-1);     % ← 加上
-J_drift_y = zeros(ny-1, nx); for i = 1:nx-1
+J_drift_y = zeros(ny-1, nx); 
+for i = 1:nx-1
     for j = 1:ny
         v = lattice_velocity_x(j, i);
         if v >= 0
