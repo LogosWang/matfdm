@@ -1,34 +1,34 @@
 %% 参数（全部挂在 p 下）
 p.dim   = 2;
-p.nx    = 500;
-p.ny    = 10;
+p.nx    = 10;
+p.ny    = 3;
 
 p.dt    = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;       % 显式 Euler 用；ode15s 也会用这个值
-p.dx    = 0.1;
-p.dy = 1;
-p.t_end = 100000000.0;
+p.dx    = 5;
+p.dy = 2;
+p.t_end = 1e7;
 
 p.V_init = 1e-13;
 p.V_DBC  = 1e-13;
 p.I_init = 1e-13;
 p.I_DBC  = 1e-13;
 
-DCrV = 5e8;
-DFeV = 1e8;
-DNiV = 5e7;
-DSiV = 5e8;
+DCrV = 4.55e4;
+DFeV = 3.21e4;
+DNiV = 2.68e4;
+DSiV = 5e4;
 p.DV = [DCrV, DFeV, DNiV,DSiV];
-DCrI = 2e7;
-DFeI = 2e7;
-DNiI = 2e7;
-DSiI = 5e8;
+DCrI = 1.5e4;
+DFeI = 1.5e4;
+DNiI = 1.5e4;
+DSiI = 3e4;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
-p.f0V = 0.8;
-p.f0I = 0.7;
-p.dose_rate   = 1e-8;
+p.f0V = 0.6;
+p.f0I = 0.6;
+p.dose_rate   = 3e-7;
 p.recomb_rate = 1e4;
-
+p.Ks = 1e-5;
 p.Cr_init = 0.18;   p.Cr_DCB = 0.18;
 p.Fe_init = 0.71;   p.Fe_DCB = 0.71;
 p.Ni_init = 0.10;   p.Ni_DCB = 0.10;
@@ -177,14 +177,29 @@ for f = 1:6
     legend('show', 'Location', 'northwest', 'FontSize', 14);
 end
 
-%% --- 图 7-12：最终时刻的 2D 浓度场（imagesc 热图）---
-for f = 1:6
-    figure(6+f); clf;
-    imagesc(x, y, fields{f}(:,:,end));
-    set(gca, 'YDir', 'normal');           % y 轴正方向朝上
-    axis equal tight; colorbar;
-    xlabel('x (nm)', 'FontSize', 20)
-    ylabel('y (nm)', 'FontSize', 20)
-    title([labels{f} ' at dose = 1'], 'FontSize', 20)
-    set(gca, 'FontSize', 16)
+%% --- 四元素总和(Cr+Fe+Ni+Si)profile,用于检查 site fraction 守恒 ---
+figure(13); clf; hold on; box on;
+for k = 1:numel(idx)
+    i = idx(k);
+    sum_profile = squeeze(Cr_t(j_mid,:,i) + Fe_t(j_mid,:,i) + Ni_t(j_mid,:,i) + Si_t(j_mid,:,i));
+    plot(x, sum_profile, 'LineWidth', 2.5, ...
+         'Color', colors(k, :), ...
+         'DisplayName', sprintf('dose = %.2g', (i-1)/100));
 end
+yline(1, 'k--', 'LineWidth', 1.5, 'HandleVisibility', 'off');   % 参考线 = 1
+xlabel('x (nm)', 'FontSize', 24)
+ylabel('Cr + Fe + Ni + Si', 'FontSize', 24)
+set(gca, 'FontSize', 20)
+legend('show', 'Location', 'best', 'FontSize', 14);
+
+% %% --- 图 7-12：最终时刻的 2D 浓度场（imagesc 热图）---
+% for f = 1:6
+%     figure(6+f); clf;
+%     imagesc(x, y, fields{f}(:,:,end));
+%     set(gca, 'YDir', 'normal');           % y 轴正方向朝上
+%     axis equal tight; colorbar;
+%     xlabel('x (nm)', 'FontSize', 20)
+%     ylabel('y (nm)', 'FontSize', 20)
+%     title([labels{f} ' at dose = 1'], 'FontSize', 20)
+%     set(gca, 'FontSize', 16)
+% end

@@ -1,4 +1,4 @@
-function dV_dt = dVdt(J_V_x,J_V_y,dx,dy,I,V,dose_rate,recom_rate)
+function dV_dt = dVdt(J_V_x,J_V_y,dx,dy,I,V,dose_rate,recom_rate,lattice_velocity)
 [ny,nx]=size(J_V_x);
 nx = nx+1;
 grad_J_x = zeros(ny,nx);
@@ -8,7 +8,7 @@ for i = 1:nx
     for j = 1:ny
     if i == nx
         J_ghost = -J_V_x(j,i-1);
-        grad_J_x(j,i) = (-J_V_x(j,i-1)+J_ghost)/dx;
+        grad_J_x(j,i) = (-J_V_x(j,i-1)+J_ghost)/dx+V(j,i)*lattice_velocity(j,i-1)/(0.5*dx);
     elseif i == 1
         grad_J_x(j,i) = 0.0;
     else

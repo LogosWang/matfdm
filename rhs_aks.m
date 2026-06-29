@@ -31,34 +31,57 @@ CSi(:, nx) = p.Si_DCB;
 [J_Si_I_x,J_Si_I_y] = J_via_medium(4,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
 [J_I_diff_x,J_I_diff_y]  = JI(J_Cr_I_x,J_Cr_I_y, J_Fe_I_x, J_Fe_I_y, J_Ni_I_x, J_Ni_I_y, J_Si_I_x, J_Si_I_y);
 
+
+J_r_Cr = Jreaction(CCr,p.Ks);
+J_r_Fe = Jreaction(CFe,p.Ks);
+J_r_Ni = Jreaction(CNi,p.Ks);
+J_r_Si = Jreaction(CSi,p.Ks);
 lattice_velocity_x = J_V_diff_x-J_I_diff_x;
+[ny1,nx1]=size(lattice_velocity_x);
+for i = 1 : nx1
+    lattice_velocity_x(:,i) = lattice_velocity_x(:,i)+J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si;
+end
+ 
+% for i = 1 : nx1
+%     lattice_velocity_x(:,i) = J_V_diff_x(:,1)-J_I_diff_x(:,1)+J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si;
+% end
+
+% for i = 1 : nx1
+%     lattice_velocity_x(:,i) = J_V_diff_x(:,1)-J_I_diff_x(:,1);
+% end
+
+% lattice_velocity_x(:,1) = lattice_velocity_x(:,1)+J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si;
+
 lattice_velocity_y = J_V_diff_y-J_I_diff_y;
 [J_Cr_drift_x,J_Cr_drift_y] = Jdrift(lattice_velocity_x,lattice_velocity_y,CCr);
 [J_Fe_drift_x,J_Fe_drift_y] = Jdrift(lattice_velocity_x,lattice_velocity_y,CFe);
 [J_Ni_drift_x,J_Ni_drift_y] = Jdrift(lattice_velocity_x,lattice_velocity_y,CNi);
 [J_Si_drift_x,J_Si_drift_y] = Jdrift(lattice_velocity_x,lattice_velocity_y,CSi);
-% J_V_drift = JVdrift(lattice_velocity,V);
+
+[J_V_drift_x,J_V_drift_y] = Jdrift(lattice_velocity_x,lattice_velocity_y,V);
+[J_I_drift_x,J_I_drift_y] = Jdrift(lattice_velocity_x,lattice_velocity_y,I);
+
 J_Cr_x = J_Cr_V_x+J_Cr_I_x+J_Cr_drift_x;
 J_Ni_x = J_Ni_V_x+J_Ni_I_x+J_Ni_drift_x;
 J_Fe_x = J_Fe_V_x+J_Fe_I_x+J_Fe_drift_x;
 J_Si_x = J_Si_V_x+J_Si_I_x+J_Si_drift_x;
-J_V_x=J_V_diff_x;
-J_I_x=J_I_diff_x;
+J_V_x=J_V_diff_x+J_V_drift_x;
+J_I_x=J_I_diff_x+J_I_drift_x;
 
 J_Cr_y = J_Cr_V_y+J_Cr_I_y+J_Cr_drift_y;
 J_Ni_y = J_Ni_V_y+J_Ni_I_y+J_Ni_drift_y;
 J_Fe_y = J_Fe_V_y+J_Fe_I_y+J_Fe_drift_y;
 J_Si_y  = J_Si_V_y+J_Si_I_y+J_Si_drift_y;
-J_V_y=J_V_diff_y;
-J_I_y=J_I_diff_y;
+J_V_y=J_V_diff_y+J_V_drift_y;
+J_I_y=J_I_diff_y+J_I_drift_y;
 
 % 时间导数
-dCr = dsolutedt(J_Cr_x, J_Cr_y, p.dx, p.dy);
-dFe = dsolutedt(J_Fe_x, J_Fe_y, p.dx, p.dy);
-dNi = dsolutedt(J_Ni_x, J_Ni_y, p.dx, p.dy);
-dSi = dsolutedt(J_Si_x, J_Si_y, p.dx, p.dy);
-dV  = dVdt (J_V_x,J_V_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate);
-dI  =  dIdt (J_I_x,J_I_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate);
+dCr = dsolutedt(J_Cr_x, J_Cr_y, p.dx, p.dy,J_r_Cr);
+dFe = dsolutedt(J_Fe_x, J_Fe_y, p.dx, p.dy,J_r_Fe);
+dNi = dsolutedt(J_Ni_x, J_Ni_y, p.dx, p.dy,J_r_Ni);
+dSi = dsolutedt(J_Si_x, J_Si_y, p.dx, p.dy,J_r_Si);
+dV  = dVdt (J_V_x,J_V_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate,lattice_velocity_x);
+dI  =  dIdt (J_I_x,J_I_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate,lattice_velocity_x);
 % Dirichlet 导数置零
 dV(:,1)    = 0;
 dI(:,1)      = 0;
