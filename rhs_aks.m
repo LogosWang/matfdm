@@ -26,17 +26,31 @@ CNi(:, nx) = p.Ni_DCB;
 CSi(:, nx) = p.Si_DCB;
 CO(1,1) = p.O_DCB;
 % 通量
-[J_Cr_V_x,J_Cr_V_y] = J_via_medium(1,CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1);
-[J_Fe_V_x,J_Fe_V_y] =  J_via_medium(2,CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1);
-[J_Ni_V_x,J_Ni_V_y] =  J_via_medium(3,CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1);
-[J_Si_V_x,J_Si_V_y] =  J_via_medium(4,CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1);
+% [J_Cr_V_x,J_Cr_V_y] = J_via_medium(1,CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1);
+% [J_Fe_V_x,J_Fe_V_y] =  J_via_medium(2,CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1);
+% [J_Ni_V_x,J_Ni_V_y] =  J_via_medium(3,CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1);
+% [J_Si_V_x,J_Si_V_y] =  J_via_medium(4,CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1);
+% [J_V_diff_x,J_V_diff_y]  = JV(J_Cr_V_x,J_Cr_V_y, J_Fe_V_x, J_Fe_V_y, J_Ni_V_x, J_Ni_V_y, J_Si_V_x, J_Si_V_y);
+% 
+% [J_Cr_I_x,J_Cr_I_y] = J_via_medium(1,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
+% [J_Fe_I_x,J_Fe_I_y] = J_via_medium(2,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
+% [J_Ni_I_x,J_Ni_I_y] = J_via_medium(3,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
+% [J_Si_I_x,J_Si_I_y] = J_via_medium(4,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
+
+
+% V mediated
+[J_Cr_V_x,J_Fe_V_x,J_Ni_V_x,J_Si_V_x, ...
+ J_Cr_V_y,J_Fe_V_y,J_Ni_V_y,J_Si_V_y] = ...
+    J_all_via_medium(CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1);
 [J_V_diff_x,J_V_diff_y]  = JV(J_Cr_V_x,J_Cr_V_y, J_Fe_V_x, J_Fe_V_y, J_Ni_V_x, J_Ni_V_y, J_Si_V_x, J_Si_V_y);
 
-[J_Cr_I_x,J_Cr_I_y] = J_via_medium(1,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
-[J_Fe_I_x,J_Fe_I_y] = J_via_medium(2,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
-[J_Ni_I_x,J_Ni_I_y] = J_via_medium(3,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
-[J_Si_I_x,J_Si_I_y] = J_via_medium(4,CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
+% I mediated
+[J_Cr_I_x,J_Fe_I_x,J_Ni_I_x,J_Si_I_x, ...
+ J_Cr_I_y,J_Fe_I_y,J_Ni_I_y,J_Si_I_y] = ...
+    J_all_via_medium(CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
 [J_I_diff_x,J_I_diff_y]  = JI(J_Cr_I_x,J_Cr_I_y, J_Fe_I_x, J_Fe_I_y, J_Ni_I_x, J_Ni_I_y, J_Si_I_x, J_Si_I_y);
+
+
 J_r_Cr = Jreaction(CCr,CO,p.kCr,2/3,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
 J_r_Fe = Jreaction(CFe,CO,p.kFe,3/4,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
 J_r_Ni = Jreaction(CNi,CO,p.kNi,1,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
@@ -45,10 +59,10 @@ J_r_Si = Jreaction(CSi,CO,p.kSi,1/2,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3
 
 lattice_velocity_x = J_V_diff_x-J_I_diff_x;
 [ny1,nx1]=size(lattice_velocity_x);
-for i = 1 : nx1
-    lattice_velocity_x(:,i) = lattice_velocity_x(:,i)+J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si;
-end
-
+% for i = 1 : nx1
+%     lattice_velocity_x(:,i) = lattice_velocity_x(:,i)+J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si;
+% end
+lattice_velocity_x = lattice_velocity_x + (J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si);
 % for i = 1 : nx1
 %     lattice_velocity_x(:,i) = J_V_diff_x(:,1)-J_I_diff_x(:,1)+J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si;
 % end

@@ -5,8 +5,8 @@ p.ny    = 10;
 
 p.dt    = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;       % 显式 Euler 用；ode15s 也会用这个值
-p.dx    = 5;
-p.dy = 20;
+p.dx    = 2;
+p.dy = 10;
 p.t_end = 1e7;
 
 p.V_init = 1e-13;
@@ -127,10 +127,10 @@ opts = odeset( ...
     'AbsTol',      absTol, ...
     'NonNegative', 2*N+1:M, ...
     'JPattern',    jpattern_aks(p.nx, p.ny), ...
-    'Stats',       'on', ...
-    'OutputFcn',   @(t,y,flag) myprogress(t,y,flag,p.t_end));
+    'OutputFcn',   @(t,y,flag) myprogress(t,y,flag,p.t_end), ...
+    'Stats',       'on');
 
-disp(opts.OutputFcn)
+% disp(opts.OutputFcn)
 fprintf('Starting ode23tb...\n');
 tic;
 sol = ode23tb(@(t,y) rhs_aks(t,y,p), [0 p.t_end], y0, opts);
