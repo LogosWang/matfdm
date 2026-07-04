@@ -15,7 +15,7 @@ base   = 6 * N;
 CO     = y(base +        1 : base +   ny);
 CCr2O3 = y(base +   ny + 1 : base + 2*ny);
 CFe3O4   = y(base + 2*ny + 1 : base + 3*ny);
-CNiO   = y(base + 3*ny + 1 : base + 4*ny);
+CNiFe2O4   = y(base + 3*ny + 1 : base + 4*ny);
 CSiO2  = y(base + 4*ny + 1 : base + 5*ny);
 % 强制 Dirichlet（按整条边，不再是单点）
 V(:, 1)    = p.V_DBC;
@@ -51,10 +51,32 @@ CO(1,1) = p.O_DCB;
 [J_I_diff_x,J_I_diff_y]  = JI(J_Cr_I_x,J_Cr_I_y, J_Fe_I_x, J_Fe_I_y, J_Ni_I_x, J_Ni_I_y, J_Si_I_x, J_Si_I_y);
 
 
-J_r_Cr = Jreaction(CCr,CO,p.kCr,2/3,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
-J_r_Fe = Jreaction(CFe,CO,p.kFe,3/4,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
-J_r_Ni = Jreaction(CNi,CO,p.kNi,1,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
-J_r_Si = Jreaction(CSi,CO,p.kSi,1/2,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
+% ===== 双前沿界面代数（替代 Jreaction/Jcoreaction/effectivek）=====
+persistent UU
+if isempty(UU) || size(UU,2) ~= ny, UU = nan(4, ny); end
+q_all = zeros(ny, 4);   u2_all = zeros(ny,1);
+for j = 1:ny
+    [qj, uuj, okj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
+                                CCr2O3(j), CFe3O4(j), CNiFe2O4(j), p, UU(:,j));
+    if ~okj
+        [qj, uuj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
+                               CCr2O3(j), CFe3O4(j), CNiFe2O4(j), p, []);
+    end
+    q_all(j,:) = qj';  UU(:,j) = uuj;  u2_all(j) = uuj(2);
+end
+qCr = q_all(:,1); qSi = q_all(:,2); qMag = q_all(:,3); qTr = q_all(:,4);
+
+% 溶质 sink（保持 J_r 负号约定，直接喂 dsolutedt / lattice velocity）
+J_r_Cr = -(2/3)*qCr;
+J_r_Si = -(1/2)*qSi;
+J_r_Fe = -(0.75*qMag + 0.5*qTr);
+J_r_Ni = -(0.25*qTr);
+
+% J_r_Cr = Jreaction(CCr,CO,p.kCr,2/3,p.DCr2O3O,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
+% J_r_Fe_1 = Jreaction(CFe,CO,p.kFe,3/4,p.DCr2O3Fe,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
+% [J_r_Ni,J_r_Fe_2] = Jcoreaction(CNi,CO,p.kNi,0.25,0.5,p.DCr2O3Ni,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
+% J_r_Fe = J_r_Fe_1+J_r_Fe_2;
+% J_r_Si = Jreaction(CSi,CO,p.kSi,1/2,p.DCr2O3O,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
 
 
 lattice_velocity_x = J_V_diff_x-J_I_diff_x;
@@ -89,7 +111,7 @@ J_Fe_y = J_Fe_V_y+J_Fe_I_y+J_Fe_drift_y;
 J_Si_y  = J_Si_V_y+J_Si_I_y+J_Si_drift_y;
 J_V_y=J_V_diff_y+J_V_drift_y;
 J_I_y=J_I_diff_y+J_I_drift_y;
-J_O= JO(CO,CCr2O3,CFe3O4,CNiO,CSiO2,p.DO0,p.slab,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,p.dy);
+J_O= JO(CO,CCr2O3,CFe3O4,CNiFe2O4,CSiO2,p.DO0,p.slab,p.DCr2O3,p.DFe3O4,p.DNiFe2O4,p.DSiO2,p.dy);
 % 时间导数
 dCr = dsolutedt(J_Cr_x, J_Cr_y, p.dx, p.dy,J_r_Cr);
 dFe = dsolutedt(J_Fe_x, J_Fe_y, p.dx, p.dy,J_r_Fe);
@@ -97,11 +119,28 @@ dNi = dsolutedt(J_Ni_x, J_Ni_y, p.dx, p.dy,J_r_Ni);
 dSi = dsolutedt(J_Si_x, J_Si_y, p.dx, p.dy,J_r_Si);
 dV  = dVdt (J_V_x,J_V_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate, p.V_init,p.I_init,p.Ks,lattice_velocity_x);
 dI  =  dIdt (J_I_x,J_I_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate, p.I_init, p.V_init,p.Ks,lattice_velocity_x);
-dO = dOdt(CCr,CFe,CNi,CSi,CO,J_O,p.kCr,p.kFe,p.kNi,p.kSi,p.dy,p.slab,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2);
-dCr2O3 = reaction(CO,CCr,p.kCr,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2,p.Nden,p.Cr2O3mass,p.NA,p.Cr2O3den,1/3);
-dFe3O4 = reaction(CO,CFe,p.kFe,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2,p.Nden,p.Fe3O4mass,p.NA,p.Fe3O4den,1/4);
-dNiO = reaction(CO,CNi,p.kNi,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2,p.Nden,p.NiOmass,p.NA,p.NiOden,1);
-dSiO2 = reaction(CO,CSi,p.kSi,p.DCr2O3,p.DFe3O4,p.DNiO,p.DSiO2,CCr2O3,CFe3O4,CNiO,CSiO2,p.Nden,p.SiO2mass,p.NA,p.SiO2den,1/2);
+
+Q_O = sum(q_all, 2); 
+dO = dOdt(CO, J_O, Q_O, p.dy, p.slab);
+
+% dO = dOdt(CCr,CFe,CNi,CSi,CO,J_O,p.kCr,p.kFe,p.kNi,p.kSi,p.dy,p.slab,p.DCr2O3,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
+
+
+convCr2O3   = p.Nden*p.Cr2O3mass   /(p.NA*p.Cr2O3den);
+convSiO2    = p.Nden*p.SiO2mass    /(p.NA*p.SiO2den);
+convFe3O4   = p.Nden*p.Fe3O4mass   /(p.NA*p.Fe3O4den);
+convNiFe2O4 = p.Nden*p.NiFe2O4mass /(p.NA*p.NiFe2O4den);
+
+dCr2O3   = (1/3)*qCr .* convCr2O3;
+dSiO2    = (1/2)*qSi .* convSiO2  - p.kdiss .* CO .* CSiO2;   % 溶解 sink
+dFe3O4   = (1/4)*qMag.* convFe3O4;
+dNiFe2O4 = (1/4)*qTr .* convNiFe2O4;
+
+
+% dCr2O3 = reaction(CO,CCr,p.kCr,p.DCr2O3,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2,p.Nden,p.Cr2O3mass,p.NA,p.Cr2O3den,1/3);
+% dFe3O4 = reaction(CO,CFe,p.kFe,p.DCr2O3,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2,p.Nden,p.Fe3O4mass,p.NA,p.Fe3O4den,1/4);
+% dNiFe2O4 = reaction(CO,CNi,p.kNi,p.DCr2O3,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2,p.Nden,p.NiFe2O4mass,p.NA,p.NiFe2O4den,1/4);
+% dSiO2 = reaction(CO,CSi,p.kSi,p.DCr2O3,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2,p.Nden,p.SiO2mass,p.NA,p.SiO2den,1/2);
 % Dirichlet 导数置零
 dV(:,1)    = 0;
 dI(:,1)      = 0;
@@ -111,7 +150,7 @@ dNi(:,nx)  = 0;
 dSi(:,nx)  = 0;
 dO(1,1) = 0;
 % 打包：行 -> 列
-dydt = [dV(:); dI(:);dCr(:); dFe(:); dNi(:); dSi(:); dO(:);dCr2O3(:);dFe3O4(:);dNiO(:);dSiO2(:)];
+dydt = [dV(:); dI(:);dCr(:); dFe(:); dNi(:); dSi(:); dO(:);dCr2O3(:);dFe3O4(:);dNiFe2O4(:);dSiO2(:)];
 
 
 % rhs_aks.m 最后, return 之前

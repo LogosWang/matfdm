@@ -1,11 +1,11 @@
 %% 参数（全部挂在 p 下）
 p.dim   = 2;
-p.nx    = 10;
+p.nx    = 50;
 p.ny    = 10;
 
 p.dt    = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;       % 显式 Euler 用；ode15s 也会用这个值
-p.dx    = 2;
+p.dx    = 1;
 p.dy = 10;
 p.t_end = 1e7;
 
@@ -36,16 +36,34 @@ p.Si_init = 0.01;   p.Si_DCB = 0.01;
 p.O_init = 0.0; p.O_DCB = 1.0;
 p.Cr2O3_init = 0.0;
 p.Fe3O4_init = 0.0;
-p.NiO_init = 0.0;
+p.NiFe2O4_init = 0.0;
 p.SiO2_init = 0.0;
-p.kCr = 1e-4;
-p.kSi = 1e-4;
-p.kNi = 1e-4;
-p.kFe = 1e-4;
-p.DCr2O3 = 1e-5;
-p.DFe3O4 = 0.003;
-p.DNiO = 0.002;
-p.DSiO2 = 0.01;
+% ---- 穿膜输运 (nm^2/s; 换算: 1e-17 cm2/s = 1e-3 nm2/s) ----
+
+p.DCr2O3O  = 2e-5;              % 实测锚点: chromite晶界 D_O = 2e-18~1e-17 cm2/s @325C
+                                %  (你现在的 1e-5 比实测低 20~100x, 标定内层生长速率时留意)
+p.DCr2O3Fe = 2e-5;              % 与 O 同量级起步 (Robertson: Fe 晶界扩散限速)
+p.DCr2O3Ni = 2e-6;              % = 1e-2 x DFe (OSPE/DFT + 573K放大; 区间 1e-2~1e-3)
+
+p.DOout    = 2e-4;              % = 100 x DCr2O3O (外层疏松, 只需"足够大", 不敏感)
+p.DCr2O3  = p.DCr2O3O;
+p.DFe3O4 = p.DOout;
+p.DNiFe2O4 = p.DOout;
+p.DSiO2    = 0.01;  
+% ---- 界面动力学 (nm/s) ----
+p.kCr = 1e-3; p.kSi = 1e-4;     % 物理含义: 线性->抛物线交叉厚度 L* = D/k ≈ 2 nm
+p.kFe = 1e-4; p.kNi = 1e-4;     %  L* 取 0.5~5 nm 都合理; 四个先取等值, 数据逼你再分
+% ---- 热力学门控 (无量纲, C_O 归一化定义下) ----
+p.E_Si = 0;  p.E_Cr = 0;        % Ellingham 定量证实为零
+p.E_mag  = 1e-4;                % Fe3O4 门控 (开启时用; 你要关就置 0)
+p.E_trev = 0.0003;                 % trevorite 门控, 区间 0.1~1 (开启时用)
+% ---- 数值 ----
+p.Lmin = 0.3;                   % nm, 单分子层正则化
+p.epsP = 1e-5;                  % 必须 << 最小非零 E (E_mag=1e-4 时取 1e-5; E全零时 1e-3 即可)
+p.epsC = 1e-12; p.tolNode = 1e-12;
+% ---- 物性 ----
+p.kdiss = 0;                    % SiO2 溶解, 先关
+% ---- 删除: p.DNiO, p.NiOden, p.NiOmass (NiO 通道已废) ----
 p.slab = 1;
 p.DO0 = 0.1;
 p.DOmax = 10;
@@ -58,8 +76,8 @@ p.Cr2O3mass = 151.99;
 p.Fe3O4den = 5.17e-21;
 p.Fe3O4mass = 231.53;
 
-p.NiOden = 6.67e-21;
-p.NiOmass = 74.69;
+p.NiFe2O4den = 5.37e-21;
+p.NiFe2O4mass = 234.38;
 
 p.SiO2den = 2.2e-21;
 p.SiO2mass = 60.08;
@@ -76,7 +94,7 @@ if p.dim ==2
     CO  = ones(p.ny, 1) * p.O_init;    CO(1,1) = p.O_DCB;
     CCr2O3  = ones(p.ny, 1) * p.Cr2O3_init;
     CFe3O4  = ones(p.ny, 1) * p.Fe3O4_init;
-    CNiO  = ones(p.ny, 1) * p.NiO_init;
+    CNiFe2O4  = ones(p.ny, 1) * p.NiFe2O4_init;
     CSiO2  = ones(p.ny, 1) * p.SiO2_init;
 end
 
@@ -87,7 +105,7 @@ N   = p.nx * p.ny;                                  % 2D 单场长度
 M   = 6*N + 5*p.ny;                                 % y0 总长度
 
 y0  = [V(:); I(:); CCr(:); CFe(:); CNi(:); CSi(:); ...
-       CO(:); CCr2O3(:); CFe3O4(:); CNiO(:); CSiO2(:)];
+       CO(:); CCr2O3(:); CFe3O4(:); CNiFe2O4(:); CSiO2(:)];
 
 assert(length(y0) == M, '初值向量长度不匹配');
 
@@ -157,14 +175,14 @@ base       = 6 * N;
 O_t        = Y(base +         1 : base +    ny, :);
 Cr2O3_t    = Y(base +    ny + 1 : base +  2*ny, :);
 Fe3O4_t      = Y(base +  2*ny + 1 : base +  3*ny, :);
-NiO_t      = Y(base +  3*ny + 1 : base +  4*ny, :);
+NiFe2O4_t      = Y(base +  3*ny + 1 : base +  4*ny, :);
 SiO2_t     = Y(base +  4*ny + 1 : base +  5*ny, :);
 
 
 % --- 落盘：完整时间轨迹 ---
 save('fields_timeseries.mat', ...
      'V_t','I_t','Cr_t','Fe_t','Ni_t','Si_t', ...
-     'O_t','Cr2O3_t','Fe3O4_t','NiO_t','SiO2_t', 'p',...
+     'O_t','Cr2O3_t','Fe3O4_t','NiFe2O4_t','SiO2_t', 'p',...
      '-v7.3');
 
 % --- 落盘：最终时刻快照 ---
@@ -177,7 +195,7 @@ writematrix(Si_t (:,:,end),  'Si_final.csv');
 writematrix(O_t    (:, end), 'O_final.csv');
 writematrix(Cr2O3_t(:, end), 'Cr2O3_final.csv');
 writematrix(Fe3O4_t  (:, end), 'Fe3O4_final.csv');
-writematrix(NiO_t  (:, end), 'NiO_final.csv');
+writematrix(NiFe2O4_t  (:, end), 'NiFe2O4_final.csv');
 writematrix(SiO2_t (:, end), 'SiO2_final.csv');
 
 % --- 最终时刻 2D / 1D 回填 ---
@@ -190,7 +208,7 @@ CSi   = Si_t  (:, :, end);
 CO     = O_t     (:, end);
 CCr2O3 = Cr2O3_t (:, end);
 CFe3O4   = Fe3O4_t   (:, end);
-CNiO   = NiO_t   (:, end);
+CNiFe2O4   = NiFe2O4_t   (:, end);
 CSiO2  = SiO2_t  (:, end);
 
 %% ===== 绘图 =====
@@ -246,9 +264,9 @@ title(sprintf('O along GB, dose rate = %.2g dpa/s', p.dose_rate), 'FontSize', 18
 set(gca, 'FontSize', 20)
 legend('show', 'Location', 'best', 'FontSize', 14);
 
-% --- 氧化物厚度：Cr2O3 / Fe3O4 / NiO / SiO2 ---
-oxides_1D = {Cr2O3_t, Fe3O4_t, NiO_t, SiO2_t};
-oxide_lbl = {'Cr_2O_3', 'Fe_3O_4', 'NiO', 'SiO_2'};
+% --- 氧化物厚度：Cr2O3 / Fe3O4 / NiFe2O4 / SiO2 ---
+oxides_1D = {Cr2O3_t, Fe3O4_t, NiFe2O4_t, SiO2_t};
+oxide_lbl = {'Cr_2O_3', 'Fe_3O_4', 'NiFe2O4', 'SiO_2'};
 for f = 1:4
     figure(14+f); clf; hold on; box on;
     for k = 1:numel(idx)
@@ -268,9 +286,9 @@ end
 figure(19); clf; hold on; box on;
 plot(y, Cr2O3_t(:, end), 'LineWidth', 3, 'DisplayName', 'Cr_2O_3');
 plot(y, Fe3O4_t(:, end),   'LineWidth', 3, 'DisplayName', 'Fe3O4');
-plot(y, NiO_t(:, end),   'LineWidth', 3, 'DisplayName', 'NiO');
+plot(y, NiFe2O4_t(:, end),   'LineWidth', 3, 'DisplayName', 'NiFe2O4');
 plot(y, SiO2_t(:, end),  'LineWidth', 3, 'DisplayName', 'SiO_2');
-plot(y, Cr2O3_t(:,end) + Fe3O4_t(:,end) + NiO_t(:,end) + SiO2_t(:,end), ...
+plot(y, Cr2O3_t(:,end) + Fe3O4_t(:,end) + NiFe2O4_t(:,end) + SiO2_t(:,end), ...
      'LineWidth', 3, 'LineStyle', '--', 'DisplayName', 'Total oxide');
 xlabel('y (nm) — along GB', 'FontSize', 24)
 ylabel(sprintf('Oxide Concentration at t = %.2e s', t_out(end)), 'FontSize', 24)
