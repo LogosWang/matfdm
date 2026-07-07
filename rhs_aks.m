@@ -52,19 +52,29 @@ CO(1,1) = p.O_DCB;
 
 
 % ===== 双前沿界面代数（替代 Jreaction/Jcoreaction/effectivek）=====
-persistent UU
-if isempty(UU) || size(UU,2) ~= ny, UU = nan(4, ny); end
+% persistent UU
+% if isempty(UU) || size(UU,2) ~= ny, UU = nan(4, ny); end
+% q_all = zeros(ny, 4);   u2_all = zeros(ny,1);
+% for j = 1:ny
+%     [qj, uuj, okj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
+%                                 CCr2O3(j), CFe3O4(j), CNiFe2O4(j), p, UU(:,j));
+%     if ~okj
+%         [qj, uuj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
+%                                CCr2O3(j), CFe3O4(j), CNiFe2O4(j), p, []);
+%     end
+%     q_all(j,:) = qj';  UU(:,j) = uuj;  u2_all(j) = uuj(2);
+% end
+% qCr = q_all(:,1); qSi = q_all(:,2); qMag = q_all(:,3); qTr = q_all(:,4);
+
+% ===== 双前沿界面代数（冷启动: RHS 成为 y 的确定性纯函数, 供 numjac）=====
 q_all = zeros(ny, 4);   u2_all = zeros(ny,1);
 for j = 1:ny
-    [qj, uuj, okj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
-                                CCr2O3(j), CFe3O4(j), CNiFe2O4(j), p, UU(:,j));
-    if ~okj
-        [qj, uuj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
-                               CCr2O3(j), CFe3O4(j), CNiFe2O4(j), p, []);
-    end
-    q_all(j,:) = qj';  UU(:,j) = uuj;  u2_all(j) = uuj(2);
+    [qj, uuj, ~] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
+                              CCr2O3(j), CFe3O4(j), CNiFe2O4(j), p, []);
+    q_all(j,:) = qj';   u2_all(j) = uuj(2);
 end
 qCr = q_all(:,1); qSi = q_all(:,2); qMag = q_all(:,3); qTr = q_all(:,4);
+
 
 % 溶质 sink（保持 J_r 负号约定，直接喂 dsolutedt / lattice velocity）
 J_r_Cr = -(2/3)*qCr;
