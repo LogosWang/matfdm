@@ -5,5 +5,5 @@
  
 clearvars; clear rhs_aks;
  
-p = build_p(5e-7);
-run_ckpt(p);
+p = build_p(3e-7);
+run_ckpt(p); 

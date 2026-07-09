@@ -4,7 +4,7 @@ function p = build_p(drate)
  
 p.dim   = 2;
 p.nx    = 50;
-p.ny    = 50;
+p.ny    = 100;
  
 p.dt          = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;
@@ -30,17 +30,22 @@ p.Si_init = 0.01;  p.Si_DCB = 0.01;
 p.O_init  = 0.0;   p.O_DCB  = 1.0;
 p.Cr2O3_init = 0.0;  p.Fe3O4_init = 0.0;
 p.NiFe2O4_init = 0.0; p.SiO2_init = 0.0;
- 
+
+
+
+p.Dgb = 5e-3;  
+p.bypass = 1.0;
+p.bypass_threshold = 0.6;
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
-p.DCr2O3O  = 1e-5;      % O 穿内层
-p.DCr2O3Fe = 2e-5;      % Fe 穿内层
-p.DCr2O3Ni = 5e-6;      % Ni 穿内层 (< Fe)
-p.DOout    = 2e-4;      % O 穿外层
+p.DCr2O3O  = 2e-4;      % O 穿内层
+p.DCr2O3Fe = 1e-4;      % Fe 穿内层
+p.DCr2O3Ni = 1e-5;      % Ni 穿内层 (< Fe)
+p.DOout    = 8e-4;      % O 穿外层
 % calc_DO 沿GB通道节流组 (与穿膜组物理不同, 独立)
 p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = p.DOout;  p.DNiFe2O4 = p.DOout;  p.DSiO2 = 0.01;
  
 % ---- 界面动力学 (nm/s) ----
-p.kCr = 1e-3;  p.kSi = 1e-4;  p.kFe = 1e-4;  p.kNi = 1e-4;
+p.kCr = 1e-3;  p.kSi = 1e-3;  p.kFe = 1e-4;  p.kNi = 1e-5;
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
 p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0;  p.E_trev = 0;

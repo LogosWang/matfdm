@@ -111,7 +111,24 @@ imagesc(t_out, y, Cr2O3_t); set(gca,'YDir','normal'); colorbar;
 xlabel('t (s)','FontSize',20); ylabel('y (nm) — along GB','FontSize',20)
 title(sprintf('C_{Cr_2O_3} over time, dose rate = %.2g dpa/s', p.dose_rate),'FontSize',18)
 set(gca,'FontSize',16); savepng('Cr2O3_spacetime');
- 
+
+elems_int = {Cr_t, Fe_t, Ni_t, Si_t};
+elem_lbl  = {'Cr','Fe','Ni','Si'};
+for f = 1:4
+    figure(21+f); clf; hold on; box on;
+    for k = 1:numel(idx)
+        i = idx(k);
+        plot(y, squeeze(elems_int{f}(:,1,i)), 'LineWidth',2.5, 'Color',colors(k,:), ...
+             'DisplayName',sprintf('t = %.2e s', t_out(i)));
+    end
+    xlabel('y (nm) — along GB','FontSize',24)
+    ylabel([elem_lbl{f} ' at x = 1 (interface)'],'FontSize',24)
+    title(sprintf('%s interface column, dose rate = %.2g dpa/s', elem_lbl{f}, p.dose_rate),'FontSize',18)
+    set(gca,'FontSize',20); legend('show','Location','best','FontSize',14);
+    savepng(sprintf('%s_interface_along_GB', elem_lbl{f}));
+end
+
+
 fprintf('后处理完成, 全部输出 -> %s\n', outdir);
 end
  

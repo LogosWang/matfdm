@@ -76,12 +76,24 @@ end
 qCr = q_all(:,1); qSi = q_all(:,2); qMag = q_all(:,3); qTr = q_all(:,4);
 
 
+
 % 溶质 sink（保持 J_r 负号约定，直接喂 dsolutedt / lattice velocity）
+v_ox  = (2/3)*qCr + 0.5*qSi + 0.75*qMag + 0.75*qTr;
 J_r_Cr = -(2/3)*qCr;
 J_r_Si = -(1/2)*qSi;
-J_r_Fe = -(0.75*qMag + 0.5*qTr);
+J_r_Fe = -(0.75*qMag + 0.5*qTr);   
 J_r_Ni = -(0.25*qTr);
-
+portion=1./(1+exp(-7*(CNi(:,1)-p.bypass_threshold)));
+if p.bypass==1
+    s_exp = portion .* CNi(:,1) .* v_ox;                 % 排出通量, 去向不追踪
+    J_r_Ni = -(0.25*qTr) - s_exp;
+    s_exp = portion .* CCr(:,1) .* v_ox;                 % 排出通量, 去向不追踪
+    J_r_Cr = -(2/3)*qCr - s_exp;
+    s_exp = portion .* CFe(:,1) .* v_ox;                 % 排出通量, 去向不追踪
+    J_r_Fe = -(0.75*qMag + 0.5*qTr) - s_exp;
+    s_exp = portion .* CSi(:,1) .* v_ox;                 % 排出通量, 去向不追踪
+    J_r_Si = -(1/2)*qSi - s_exp;
+end
 % J_r_Cr = Jreaction(CCr,CO,p.kCr,2/3,p.DCr2O3O,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
 % J_r_Fe_1 = Jreaction(CFe,CO,p.kFe,3/4,p.DCr2O3Fe,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
 % [J_r_Ni,J_r_Fe_2] = Jcoreaction(CNi,CO,p.kNi,0.25,0.5,p.DCr2O3Ni,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
@@ -119,6 +131,13 @@ J_Cr_y = J_Cr_V_y+J_Cr_I_y+J_Cr_drift_y;
 J_Ni_y = J_Ni_V_y+J_Ni_I_y+J_Ni_drift_y;
 J_Fe_y = J_Fe_V_y+J_Fe_I_y+J_Fe_drift_y;
 J_Si_y  = J_Si_V_y+J_Si_I_y+J_Si_drift_y;
+
+% J_Cr_y(:,1) = J_Cr_y(:,1) - p.Dgb * diff(CCr(:,1)) / p.dy;
+% J_Fe_y(:,1) = J_Fe_y(:,1) - p.Dgb * diff(CFe(:,1)) / p.dy;
+% J_Ni_y(:,1) = J_Ni_y(:,1) - p.Dgb * diff(CNi(:,1)) / p.dy;
+% J_Si_y(:,1) = J_Si_y(:,1) - p.Dgb * diff(CSi(:,1)) / p.dy;
+
+
 J_V_y=J_V_diff_y+J_V_drift_y;
 J_I_y=J_I_diff_y+J_I_drift_y;
 J_O= JO(CO,CCr2O3,CFe3O4,CNiFe2O4,CSiO2,p.DO0,p.slab,p.DCr2O3,p.DFe3O4,p.DNiFe2O4,p.DSiO2,p.dy);
