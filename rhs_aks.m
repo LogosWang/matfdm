@@ -83,22 +83,55 @@ J_r_Cr = -(2/3)*qCr;
 J_r_Si = -(1/2)*qSi;
 J_r_Fe = -(0.75*qMag + 0.5*qTr);   
 J_r_Ni = -(0.25*qTr);
-portion=1./(1+exp(-7*(CNi(:,1)-p.bypass_threshold)));
-if p.bypass==1
-    s_exp = portion .* CNi(:,1) .* v_ox;                 % 排出通量, 去向不追踪
-    J_r_Ni = -(0.25*qTr) - s_exp;
-    s_exp = portion .* CCr(:,1) .* v_ox;                 % 排出通量, 去向不追踪
-    J_r_Cr = -(2/3)*qCr - s_exp;
-    s_exp = portion .* CFe(:,1) .* v_ox;                 % 排出通量, 去向不追踪
-    J_r_Fe = -(0.75*qMag + 0.5*qTr) - s_exp;
-    s_exp = portion .* CSi(:,1) .* v_ox;                 % 排出通量, 去向不追踪
-    J_r_Si = -(1/2)*qSi - s_exp;
-end
+
+
+
+% portion=1./(1+exp(-7*(CNi(:,1)-p.bypass_threshold)));
+% if p.bypass==1
+%     s_exp = portion .* CNi(:,1) .* v_ox;                 % 排出通量, 去向不追踪
+%     J_r_Ni = -(0.25*qTr) - s_exp;
+%     s_exp = portion .* CCr(:,1) .* v_ox;                 % 排出通量, 去向不追踪
+%     J_r_Cr = -(2/3)*qCr - s_exp;
+%     s_exp = portion .* CFe(:,1) .* v_ox;                 % 排出通量, 去向不追踪
+%     J_r_Fe = -(0.75*qMag + 0.5*qTr) - s_exp;
+%     s_exp = portion .* CSi(:,1) .* v_ox;                 % 排出通量, 去向不追踪
+%     J_r_Si = -(1/2)*qSi - s_exp;
+% end
+
+% velocity_local = (J_r_Cr1+J_r_Fe1+J_r_Si1)./(CCr(:,1)+CFe(:,1)+CSi(:,1));
+% gate = 1./(1+exp((p.vc-abs(velocity_local))/p.vw));
+% J_r_Ni = J_r_Ni1+velocity_local.*gate.*CNi(:,1);
+% 
+% velocity_local = (J_r_Cr1+J_r_Ni1+J_r_Si1)./(CCr(:,1)+CNi(:,1)+CSi(:,1));
+% gate = 1./(1+exp((p.vc-abs(velocity_local))/p.vw));
+% J_r_Fe = J_r_Fe1+velocity_local.*gate.*CFe(:,1);
+% 
+% velocity_local = (J_r_Ni1+J_r_Fe1+J_r_Si1)./(CNi(:,1)+CFe(:,1)+CSi(:,1));
+% gate = 1./(1+exp((p.vc-abs(velocity_local))/p.vw));
+% J_r_Cr = J_r_Cr1+velocity_local.*gate.*CCr(:,1);
+% 
+% velocity_local = (J_r_Cr1+J_r_Fe1+J_r_Ni1)./(CCr(:,1)+CFe(:,1)+CNi(:,1));
+% gate = 1./(1+exp((p.vc-abs(velocity_local))/p.vw));
+% J_r_Si = J_r_Si1+velocity_local.*gate.*CSi(:,1);
+
+
 % J_r_Cr = Jreaction(CCr,CO,p.kCr,2/3,p.DCr2O3O,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
 % J_r_Fe_1 = Jreaction(CFe,CO,p.kFe,3/4,p.DCr2O3Fe,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
 % [J_r_Ni,J_r_Fe_2] = Jcoreaction(CNi,CO,p.kNi,0.25,0.5,p.DCr2O3Ni,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
 % J_r_Fe = J_r_Fe_1+J_r_Fe_2;
 % J_r_Si = Jreaction(CSi,CO,p.kSi,1/2,p.DCr2O3O,p.DFe3O4,p.DNiFe2O4,p.DSiO2,CCr2O3,CFe3O4,CNiFe2O4,CSiO2);
+
+% F = [ -p.Dgb*(CNi(1,1)-p.Ni_init)/p.dy;      % F(0) 出口面: ghost 储库 Dirichlet
+%       -p.Dgb*diff(CNi(:,1))/p.dy;            % 内部面 1..ny-1
+%        0 ];                                  % 深端封闭
+F = [ -p.Dgb*(CNi(1,1)-p.Ni_init)/p.dy;      % F(0) 出口面: ghost 储库 Dirichlet
+      -p.Dgb*diff(CNi(:,1))/p.dy;            % 内部面 1..ny-1
+      -p.Dgb*(p.Ni_init-CNi(p.ny,1))/p.dy;  ];                                  % 深端封闭
+
+dNi_gb = -(F(2:end) - F(1:end-1)) / p.dy;    % ny×1 [1/s], 净失 Ni 时 <0
+
+% (a) 站点补偿: 放在 lattice_velocity 求和处 (rhs 前段)
+J_r_gb = 0.5*p.dx * dNi_gb;  
 
 
 lattice_velocity_x = J_V_diff_x-J_I_diff_x;
@@ -106,7 +139,7 @@ lattice_velocity_x = J_V_diff_x-J_I_diff_x;
 % for i = 1 : nx1
 %     lattice_velocity_x(:,i) = lattice_velocity_x(:,i)+J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si;
 % end
-lattice_velocity_x = lattice_velocity_x + (J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si);
+lattice_velocity_x = lattice_velocity_x + (J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si+J_r_gb);
 % for i = 1 : nx1
 %     lattice_velocity_x(:,i) = J_V_diff_x(:,1)-J_I_diff_x(:,1)+J_r_Cr+J_r_Fe+J_r_Ni+J_r_Si;
 % end
@@ -145,6 +178,7 @@ J_O= JO(CO,CCr2O3,CFe3O4,CNiFe2O4,CSiO2,p.DO0,p.slab,p.DCr2O3,p.DFe3O4,p.DNiFe2O
 dCr = dsolutedt(J_Cr_x, J_Cr_y, p.dx, p.dy,J_r_Cr);
 dFe = dsolutedt(J_Fe_x, J_Fe_y, p.dx, p.dy,J_r_Fe);
 dNi = dsolutedt(J_Ni_x, J_Ni_y, p.dx, p.dy,J_r_Ni);
+dNi(:,1) = dNi(:,1) + dNi_gb;
 dSi = dsolutedt(J_Si_x, J_Si_y, p.dx, p.dy,J_r_Si);
 dV  = dVdt (J_V_x,J_V_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate, p.V_init,p.I_init,p.Ks,lattice_velocity_x);
 dI  =  dIdt (J_I_x,J_I_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate, p.I_init, p.V_init,p.Ks,lattice_velocity_x);

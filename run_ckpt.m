@@ -27,7 +27,7 @@ tStart = tic;
  
 % ---------- 维度 / 采样轴(窗边界) ----------
 N = p.nx*p.ny;  M = 6*N + 5*p.ny;
-nWin  = 100;                                       % 100 窗 -> 101 采样点
+nWin  = p.num_ckpt;                                       % 100 窗 -> 101 采样点
 t_out = linspace(0, p.t_end, nWin+1);
  
 % ---------- solver ----------
@@ -63,7 +63,8 @@ end
  
 % ---------- 全部完成: 与 main 一致的保存+后处理, 删 checkpoint ----------
 fprintf('[done] 全部完成, 后处理 -> %s\n', outdir);
-postprocess_matfdm(Y, t_out, p, outdir);
+sel = round(linspace(1, nWin+1, 10*p.num_output+1));
+postprocess_matfdm(Y(:,sel), t_out(sel), p, outdir);
 delete(ckpt);
 if batchStartupOptionUsed, exit(0); end
 end
