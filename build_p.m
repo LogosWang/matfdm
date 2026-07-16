@@ -8,11 +8,11 @@ p.ny    = 100;
  
 p.dt          = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;
-p.dx    = 0.4;
+p.dx    = 2;
 p.dy    = 1;
 p.t_end = 1e7;
 
-p.num_ckpt = 1000;
+p.num_ckpt = 200;
 p.num_output = 10;
 
 % ---- 缺陷场 ----
@@ -46,12 +46,12 @@ p.vc = 8e-6; p.vw = 2e-6;
 p.DCr2O3O  = 2e-4;      % O 穿内层
 p.DCr2O3Fe = 2e-4;      % Fe 穿内层
 p.DCr2O3Ni = 1e-5;      % Ni 穿内层 (< Fe)
-p.DOout    = 8e-4;      % O 穿外层
+p.DOout    = 2e-3;      % O 穿外层
 % calc_DO 沿GB通道节流组 (与穿膜组物理不同, 独立)
 p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = p.DOout;  p.DNiFe2O4 = p.DOout;  p.DSiO2 = 0.01;
  
 % ---- 界面动力学 (nm/s) ----
-p.kCr = 1e-3;  p.kSi = 1e-3;  p.kFe = 2e-4;  p.kNi = 2e-5;
+p.kCr = 1e-4;  p.kSi = 1e-4;  p.kFe = 1e-4;  p.kNi = 2e-5;
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
 p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0;  p.E_trev = 0;
