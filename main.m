@@ -1,34 +1,34 @@
 %% 参数（全部挂在 p 下）
 p.dim   = 2;
-p.nx    = 10;
+p.nx    = 50;
 p.ny    = 3;
 
 p.dt    = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;       % 显式 Euler 用；ode15s 也会用这个值
-p.dx    = 5;
+p.dx    = 0.4;
 p.dy = 2;
-p.t_end = 1e7;
+p.t_end = 3e6;
 
-p.V_init = 1e-13;
-p.V_DBC  = 1e-13;
-p.I_init = 1e-13;
-p.I_DBC  = 1e-13;
+p.V_init = 1e-12;
+p.V_DBC  = 1e-12;
+p.I_init = 1e-12;
+p.I_DBC  = 1e-12;
 
-DCrV = 4.55e4;
-DFeV = 3.21e4;
-DNiV = 2.68e4;
-DSiV = 5e4;
+DCrV = 4.55e6;
+DFeV = 3.8e6;
+DNiV = 2.68e6;
+DSiV = 5e6;
 p.DV = [DCrV, DFeV, DNiV,DSiV];
-DCrI = 1.5e4;
-DFeI = 1.5e4;
-DNiI = 1.5e4;
-DSiI = 3e4;
+DCrI = 1.5e6;
+DFeI = 1.5e6;
+DNiI = 1.5e6;
+DSiI = 3e6;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.6;
 p.f0I = 0.6;
-p.dose_rate   = 3e-7;
+p.dose_rate   = 1e-6;
 p.recomb_rate = 1e4;
-p.Ks = 1e-5;
+p.Ks = 0.0;
 p.Cr_init = 0.18;   p.Cr_DCB = 0.18;
 p.Fe_init = 0.71;   p.Fe_DCB = 0.71;
 p.Ni_init = 0.10;   p.Ni_DCB = 0.10;
