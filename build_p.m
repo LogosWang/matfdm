@@ -16,11 +16,11 @@ p.num_ckpt = 200;
 p.num_output = 10;
 
 % ---- 缺陷场 ----
-p.V_init = 1e-13;  p.V_DBC = 1e-13;
-p.I_init = 1e-13;  p.I_DBC = 1e-13;
+p.V_init = 1e-12;  p.V_DBC = 1e-12;
+p.I_init = 1e-12;  p.I_DBC = 1e-12;
 p.Ks = 1e-3;
-p.DV = [4.55e4, 3.21e4, 2.68e4, 5e4];    % Cr Fe Ni Si (V-mediated)
-p.DI = [1.5e4,  1.5e4,  1.5e4,  3e4];    % Cr Fe Ni Si (I-mediated)
+p.DV = [4.55e6, 3.21e6, 2.68e6, 5e6];    % Cr Fe Ni Si (V-mediated)
+p.DI = [1.5e6,  1.5e6,  1.5e6,  3e6];    % Cr Fe Ni Si (I-mediated)
 p.f0V = 0.8;  p.f0I = 0.7;
 p.dose_rate   = drate;                     % ← 扫描时由外部覆盖
 p.recomb_rate = 1e4;
