@@ -5,34 +5,34 @@ p.ny    = 3;
 
 p.dt    = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;       % 显式 Euler 用；ode15s 也会用这个值
-p.dx    = 0.4;
+p.dx    = 0.3;
 p.dy = 2;
-p.t_end = 3e6;
+p.t_end = 5e5;
 
 p.V_init = 1e-12;
 p.V_DBC  = 1e-12;
 p.I_init = 1e-12;
 p.I_DBC  = 1e-12;
 
-DCrV = 4.55e6;
-DFeV = 3.8e6;
-DNiV = 2.68e6;
-DSiV = 5e6;
+DCrV = 7.5e6;
+DFeV = 6e6;
+DNiV = 5e6;
+DSiV = 8e6;
 p.DV = [DCrV, DFeV, DNiV,DSiV];
-DCrI = 1.5e6;
-DFeI = 1.5e6;
-DNiI = 1.5e6;
-DSiI = 3e6;
+DCrI = 2e6;
+DFeI = 2e6;
+DNiI = 2e6;
+DSiI = 5e6;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.6;
 p.f0I = 0.6;
-p.dose_rate   = 1e-6;
+p.dose_rate   = 6e-6;
 p.recomb_rate = 1e4;
 p.Ks = 0.0;
-p.Cr_init = 0.18;   p.Cr_DCB = 0.18;
-p.Fe_init = 0.71;   p.Fe_DCB = 0.71;
-p.Ni_init = 0.10;   p.Ni_DCB = 0.10;
-p.Si_init = 0.01;   p.Si_DCB = 0.01;
+p.Cr_init = 0.211;   p.Cr_DCB = 0.211;
+p.Fe_init = 0.699;   p.Fe_DCB = 0.699;
+p.Ni_init = 0.085;   p.Ni_DCB = 0.085;
+p.Si_init = 0.005;   p.Si_DCB = 0.005;
 p.solver = 1;          % 0 = 显式 Euler；1 = ode15s
 
 %% 初值（行向量，把 BC 值塞到端点）
@@ -119,13 +119,17 @@ opts = odeset( ...
     t_out = linspace(0, p.t_end, 101);
     Y     = deval(sol, t_out);
 
+%% ===== 后处理：输出目录（按总 dose 命名）=====
+total_dose = p.t_end * p.dose_rate;              % dpa
+outdir = sprintf('dose%.1fdpa', total_dose);
+if ~exist(outdir, 'dir'); mkdir(outdir); end
+
 % 在均匀时间点上取解
 t_out = linspace(0, p.t_end, 101);
 Y     = deval(sol, t_out);
 N     = p.nx * p.ny;
 nt    = numel(t_out);
 
-% 每个场切出来再 reshape 成 ny × nx × nt
 V_t  = reshape(Y(        1 :   N, :), p.ny, p.nx, nt);
 I_t  = reshape(Y(    N + 1 : 2*N, :), p.ny, p.nx, nt);
 Cr_t = reshape(Y(  2*N + 1 : 3*N, :), p.ny, p.nx, nt);
@@ -133,13 +137,13 @@ Fe_t = reshape(Y(  3*N + 1 : 4*N, :), p.ny, p.nx, nt);
 Ni_t = reshape(Y(  4*N + 1 : 5*N, :), p.ny, p.nx, nt);
 Si_t = reshape(Y(  5*N + 1 : 6*N, :), p.ny, p.nx, nt);
 
-% 落盘：写 t_end 时刻的 2D 快照（ny × nx）
-writematrix(V_t (:,:,end), 'V_final.csv');
-writematrix(I_t (:,:,end), 'I_final.csv');
-writematrix(Cr_t(:,:,end), 'Cr_final.csv');
-writematrix(Fe_t(:,:,end), 'Fe_final.csv');
-writematrix(Ni_t(:,:,end), 'Ni_final.csv');
-writematrix(Si_t(:,:,end), 'Si_final.csv');
+% CSV 落盘到输出目录
+writematrix(V_t (:,:,end), fullfile(outdir, 'V_final.csv'));
+writematrix(I_t (:,:,end), fullfile(outdir, 'I_final.csv'));
+writematrix(Cr_t(:,:,end), fullfile(outdir, 'Cr_final.csv'));
+writematrix(Fe_t(:,:,end), fullfile(outdir, 'Fe_final.csv'));
+writematrix(Ni_t(:,:,end), fullfile(outdir, 'Ni_final.csv'));
+writematrix(Si_t(:,:,end), fullfile(outdir, 'Si_final.csv'));
 
 % 最终时刻 2D 回填（供后续操作）
 V   = V_t (:, :, end);
@@ -149,16 +153,15 @@ CFe = Fe_t(:, :, end);
 CNi = Ni_t(:, :, end);
 CSi = Si_t(:, :, end);
 
-
 %% ===== 绘图 =====
 x = (0:p.nx-1) * p.dx;
 y = (0:p.ny-1) * p.dy;
-j_mid = round(p.ny/2);     % 取中间 y 切片画 1D-like profile
+j_mid = round(p.ny/2);
 
 idx    = 1:10:nt;
 colors = parula(numel(idx));
 
-%% --- 图 1-6：沿 x 方向 profile（y=中线），不同 dose ---
+%% --- 图 1-6：沿 x 方向 profile（y=中线），不同时刻 ---
 fields = {V_t,  I_t,  Cr_t, Fe_t, Ni_t, Si_t};
 labels = {'Vacancy','Interstitial','Cr','Fe','Ni','Si'};
 
@@ -166,40 +169,30 @@ for f = 1:6
     figure(f); clf; hold on; box on;
     for k = 1:numel(idx)
         i = idx(k);
-        profile = squeeze(fields{f}(j_mid, :, i));    % 1 × nx
+        profile = squeeze(fields{f}(j_mid, :, i));
         plot(x, profile, 'LineWidth', 2.5, ...
              'Color', colors(k, :), ...
-             'DisplayName', sprintf('dose = %.2g', (i-1)/100));
+             'DisplayName', sprintf('t = %.3g s', t_out(i)));
     end
     xlabel('x (nm)',  'FontSize', 24)
     ylabel([labels{f} ' Concentration'], 'FontSize', 24)
     set(gca, 'FontSize', 20)
     legend('show', 'Location', 'northwest', 'FontSize', 14);
+    exportgraphics(gcf, fullfile(outdir, [labels{f} '_profile.png']), 'Resolution', 300);
 end
 
-%% --- 四元素总和(Cr+Fe+Ni+Si)profile,用于检查 site fraction 守恒 ---
+%% --- 四元素总和，检查 site fraction 守恒 ---
 figure(13); clf; hold on; box on;
 for k = 1:numel(idx)
     i = idx(k);
     sum_profile = squeeze(Cr_t(j_mid,:,i) + Fe_t(j_mid,:,i) + Ni_t(j_mid,:,i) + Si_t(j_mid,:,i));
     plot(x, sum_profile, 'LineWidth', 2.5, ...
          'Color', colors(k, :), ...
-         'DisplayName', sprintf('dose = %.2g', (i-1)/100));
+         'DisplayName', sprintf('t = %.3g s', t_out(i)));
 end
-yline(1, 'k--', 'LineWidth', 1.5, 'HandleVisibility', 'off');   % 参考线 = 1
+yline(1, 'k--', 'LineWidth', 1.5, 'HandleVisibility', 'off');
 xlabel('x (nm)', 'FontSize', 24)
 ylabel('Cr + Fe + Ni + Si', 'FontSize', 24)
 set(gca, 'FontSize', 20)
 legend('show', 'Location', 'best', 'FontSize', 14);
-
-% %% --- 图 7-12：最终时刻的 2D 浓度场（imagesc 热图）---
-% for f = 1:6
-%     figure(6+f); clf;
-%     imagesc(x, y, fields{f}(:,:,end));
-%     set(gca, 'YDir', 'normal');           % y 轴正方向朝上
-%     axis equal tight; colorbar;
-%     xlabel('x (nm)', 'FontSize', 20)
-%     ylabel('y (nm)', 'FontSize', 20)
-%     title([labels{f} ' at dose = 1'], 'FontSize', 20)
-%     set(gca, 'FontSize', 16)
-% end
+exportgraphics(gcf, fullfile(outdir, 'SumSite_profile.png'), 'Resolution', 300);
