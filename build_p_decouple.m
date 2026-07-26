@@ -60,22 +60,22 @@ p.vc = 8e-6; p.vw = 2e-6;
 p.DCr2O3O  = 3e-5;      % O 穿内层
 p.DCr2O3Fe = 3e-5;      % Fe 穿内层
 p.DCr2O3Ni = 5e-6;      % Ni 穿内层 (< Fe)
-p.DOout    = 0.01;      % O 穿外层
+p.DOout    = 0.001;      % O 穿外层
 % calc_DO 沿GB通道节流组 (与穿膜组物理不同, 独立)
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = p.DOout;  p.DNiFe2O4 = p.DOout;  p.DSiO2 = 0.01;
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = p.DOout;  p.DNiFe2O4 = p.DOout;  p.DSiO2 = 0.04;
  
 % ---- 界面动力学 (nm/s) ----
-p.kCr = 1e-3;  p.kSi = 1e-3;  p.kFe = 1e-4;  p.kNi = 1e-5;
+p.kCr = 1e-3;  p.kSi = 1e-3;  p.kFe = 5e-5;  p.kNi = 1e-5;
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
-p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 3e-2;  p.E_trev = 7e-2;
+p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 1.2e-2;  p.E_trev = 7e-2;
  
 % ---- 数值 ----
 p.Lmin = 0.3;  p.epsP = 1e-5;  p.epsC = 1e-12;  p.tolNode = 1e-12;
 p.kdiss = 0;
  
 % ---- 物性 ----
-p.slab = 1;  p.DO0 = 0.01;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
+p.slab = 1;  p.DO0 = 0.04;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
 p.NA = 6.02e23;  p.Nden = 87;
 p.Cr2O3den   = 5.22e-21;  p.Cr2O3mass   = 151.99;
 p.Fe3O4den   = 5.17e-21;  p.Fe3O4mass   = 231.53;

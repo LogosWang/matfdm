@@ -11,7 +11,7 @@ J_O= zeros(ny,1);
 D_n = calc_DO(CCr2O3(:,1),CFe3O4(:,1),CNiFe2O4(:,1),CSiO2(:,1), ...
               DO0,slab,DCr2O3,DFe3O4,DNiFe2O4,DSiO2);      % ny×1 节点值
 Dl  = D_n(1:end-1);   Dr = D_n(2:end);
-% Df  = 2*Dl.*Dr ./ (Dl + Dr + 1e-300);                      % (ny-1)×1 面值
-Df  = (Dl + Dr)/2;  
+Df  = 2*Dl.*Dr ./ (Dl + Dr + 1e-300);                      % (ny-1)×1 面值
+% Df  = (Dl + Dr)/2;  
 J_O = -Df .* diff(CO(:,1)) / dy;    
 end
