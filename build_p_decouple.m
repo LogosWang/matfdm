@@ -1,4 +1,4 @@
-function p = build_p(drate)
+function p = build_p_decouple(dose)
 % 唯一的参数来源。main 和 run_ckpt 都调用它, 保证参数不漂移。
 % 改物理参数只改这里。
  
@@ -10,9 +10,9 @@ p.dt          = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;
 p.dx    = 2;
 p.dy    = 1;
-p.t_end = 1e7;
+% p.t_end = 1e7;
 
-p.num_ckpt = 1000;
+p.num_ckpt = 100;
 p.num_output = 10;
 
 % ---- 缺陷场 ----
@@ -30,7 +30,13 @@ DNiI = 2e6;
 DSiI = 5e6;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.8;  p.f0I = 0.7;
-p.dose_rate   = drate;                     % ← 扫描时由外部覆盖
+p.dose_rate   = 6e-6;
+p.dose = dose;
+p.irr_time = p.dose/p.dose_rate;
+p.oxi_time = 500*60*60;
+
+
+% ← 扫描时由外部覆盖
 p.recomb_rate = 1e4;
  
 % ---- 金属 / O 初值与边界 ----
@@ -51,25 +57,25 @@ p.vc = 8e-6; p.vw = 2e-6;
 
 
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
-p.DCr2O3O  = 2e-4;      % O 穿内层
-p.DCr2O3Fe = 2e-4;      % Fe 穿内层
-p.DCr2O3Ni = 1e-5;      % Ni 穿内层 (< Fe)
-p.DOout    = 5e-3;      % O 穿外层
+p.DCr2O3O  = 3e-5;      % O 穿内层
+p.DCr2O3Fe = 3e-5;      % Fe 穿内层
+p.DCr2O3Ni = 5e-6;      % Ni 穿内层 (< Fe)
+p.DOout    = 0.01;      % O 穿外层
 % calc_DO 沿GB通道节流组 (与穿膜组物理不同, 独立)
 p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = p.DOout;  p.DNiFe2O4 = p.DOout;  p.DSiO2 = 0.01;
  
 % ---- 界面动力学 (nm/s) ----
-p.kCr = 1e-4;  p.kSi = 1e-4;  p.kFe = 2e-5;  p.kNi = 2e-5;
+p.kCr = 1e-3;  p.kSi = 1e-3;  p.kFe = 1e-4;  p.kNi = 1e-5;
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
-p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 1e-3;  p.E_trev = 1e-3;
+p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 3e-2;  p.E_trev = 7e-2;
  
 % ---- 数值 ----
 p.Lmin = 0.3;  p.epsP = 1e-5;  p.epsC = 1e-12;  p.tolNode = 1e-12;
 p.kdiss = 0;
  
 % ---- 物性 ----
-p.slab = 1;  p.DO0 = 0.1;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
+p.slab = 1;  p.DO0 = 0.01;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
 p.NA = 6.02e23;  p.Nden = 87;
 p.Cr2O3den   = 5.22e-21;  p.Cr2O3mass   = 151.99;
 p.Fe3O4den   = 5.17e-21;  p.Fe3O4mass   = 231.53;
