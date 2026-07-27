@@ -4,7 +4,7 @@ function p = build_p_decouple(dose)
  
 p.dim   = 2;
 p.nx    = 50;
-p.ny    = 100;
+p.ny    = 150;
  
 p.dt          = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;
@@ -12,7 +12,7 @@ p.dx    = 2;
 p.dy    = 1;
 % p.t_end = 1e7;
 
-p.num_ckpt = 100;
+p.num_ckpt = 50;
 p.num_output = 10;
 
 % ---- 缺陷场 ----
