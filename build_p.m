@@ -40,7 +40,7 @@ p.Ni_init = 0.085;   p.Ni_DCB = 0.085;
 p.Si_init = 0.005;   p.Si_DCB = 0.005;
 p.O_init  = 0.0;   p.O_DCB  = 1.0;
 p.Cr2O3_init = 0.0;  p.Fe3O4_init = 0.0;
-p.NiFe2O4_init = 0.0; p.SiO2_init = 0.0;
+p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 
 
@@ -56,7 +56,7 @@ p.DCr2O3Fe = 2e-4;      % Fe 穿内层
 p.DCr2O3Ni = 1e-5;      % Ni 穿内层 (< Fe)
 p.DOout    = 5e-3;      % O 穿外层
 % calc_DO 沿GB通道节流组 (与穿膜组物理不同, 独立)
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = p.DOout;  p.DNiFe2O4 = p.DOout;  p.DSiO2 = 0.01;
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = p.DOout;  p.DFeCr2O4 = p.DOout;  p.DSiO2 = 0.01;
  
 % ---- 界面动力学 (nm/s) ----
 p.kCr = 1e-4;  p.kSi = 1e-4;  p.kFe = 2e-5;  p.kNi = 2e-5;
@@ -73,7 +73,7 @@ p.slab = 1;  p.DO0 = 0.1;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.
 p.NA = 6.02e23;  p.Nden = 87;
 p.Cr2O3den   = 5.22e-21;  p.Cr2O3mass   = 151.99;
 p.Fe3O4den   = 5.17e-21;  p.Fe3O4mass   = 231.53;
-p.NiFe2O4den = 5.37e-21;  p.NiFe2O4mass = 234.38;
+p.FeCr2O4den = 5.37e-21;  p.FeCr2O4mass = 234.38;
 p.SiO2den    = 2.2e-21;   p.SiO2mass    = 60.08;
 p.solver = 1;
 end

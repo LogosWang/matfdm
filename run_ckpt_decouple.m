@@ -61,10 +61,8 @@ else
     end
     save(fullfile(outdir,'irr_timeseries.mat'), 'Y1','t1','p1','-v7.3');
 
-    % ---- 交接: mouth O Dirichlet 状态项置位 ----
-    % rhs 内部每次调用强制 CO(1)=O_DCB, 但 dO(1)=0 使状态向量该项永不更新,
-    % 不置位则存盘值永远是辐照段的 0。
-    y0(6*N + 1) = p2.O_DCB;
+    % ---- 交接: Robin BC 下 mouth O 是真实状态量, 无需置位 ----
+    % 从辐照段末值(=0)起, 由表面膜阻抗 kRobin/(sqrt(t)+10) 向 O_DCB 充电。
 
     kstart = 1;  kdone = 0;
     Y2 = nan(M, nS+1);  Y2(:,1) = y0;
@@ -101,10 +99,10 @@ CCr=ones(ny,nx)*p.Cr_init; CCr(:,nx)=p.Cr_DCB;
 CFe=ones(ny,nx)*p.Fe_init; CFe(:,nx)=p.Fe_DCB;
 CNi=ones(ny,nx)*p.Ni_init; CNi(:,nx)=p.Ni_DCB;
 CSi=ones(ny,nx)*p.Si_init; CSi(:,nx)=p.Si_DCB;
-CO=ones(ny,1)*p.O_init; CO(1,1)=p.O_DCB;
+CO=ones(ny,1)*p.O_init;              % Robin BC: 口部不再钉 O_DCB
 CCr2O3=ones(ny,1)*p.Cr2O3_init; CFe3O4=ones(ny,1)*p.Fe3O4_init;
-CNiFe2O4=ones(ny,1)*p.NiFe2O4_init; CSiO2=ones(ny,1)*p.SiO2_init;
-y0=[V(:);I(:);CCr(:);CFe(:);CNi(:);CSi(:);CO(:);CCr2O3(:);CFe3O4(:);CNiFe2O4(:);CSiO2(:)];
+CFeCr2O4=ones(ny,1)*p.FeCr2O4_init; CSiO2=ones(ny,1)*p.SiO2_init;
+y0=[V(:);I(:);CCr(:);CFe(:);CNi(:);CSi(:);CO(:);CCr2O3(:);CFe3O4(:);CFeCr2O4(:);CSiO2(:)];
 end
 
 function absTol = build_abstol(M, N, p)

@@ -1,63 +1,73 @@
 function [q, uu, ok] = solve_node(CO_gb, CCr, CFe_m, CNi_m, CSi, ...
-                                  LCr2O3, Lmag, Ltrev, p, uu0)
-% ---- 电导: Eq.1-3 的 g, L+Lmin 正则化 (§2) ----
-Lin  = LCr2O3 + p.Lmin;
-Lout = Lmag + Ltrev + p.Lmin;
-g_out = p.DOout    / Lout;
-g_in  = p.DCr2O3O  / Lin;
-g_Fe  = p.DCr2O3Fe / Lin;
-g_Ni  = p.DCr2O3Ni / Lin;
-
-% ---- 初值: §9(c). 冷启动 = "膜不挡"极限 P3 ----
-if nargin < 10 || isempty(uu0) || any(~isfinite(uu0))
-    uu = [CO_gb; CO_gb; CFe_m; CNi_m];
+                                  LCr2O3, LSiO2, Lmag, Lspin, p, uu0)
+% 单层氧化物界面代数: 唯一未知量 u = 金属/氧化物界面处 O 活度。
+%   膜内输运  J = g*(CO_gb - u),  g = D_mix/L
+%   L     = 四种氧化物总厚 + Lmin 正则化
+%   D_mix = calc_DO 对层内成分的混合 (与面内 EMT 同一混合律)
+%   全部氧化物在金属/氧化物界面生长, 消耗全部记在 u 处:
+%       g*(CO_gb - u) = qCr + qSi + qMag + qSpin
+% 性质: F(u) = g*(CO_gb-u) - Q(u) 严格单调减, 根唯一且被 [a,b] 括住,
+%       牛顿步 + 出界二分保底, 不会发散。
+% 兼容: q 顺序不变 [qCr;qSi;qMag;qSpin]; uu 仍返回 4 元 [u;u;CFe_m;CNi_m]
+%       (供给直接取金属场; uu(2) 仍是界面 O, rhs 零改动读法; CNi_m 仅占位未参与)
+ 
+% ---- 单层电导 ----
+L = LCr2O3 + LSiO2 + Lmag + Lspin + p.Lmin;
+D = calc_DO(LCr2O3, Lmag, Lspin, LSiO2, ...
+            p.DO0, p.slab, p.DCr2O3, p.DFe3O4, p.DFeCr2O4, p.DSiO2);
+g = D / L;
+ 
+% ---- 供给与速率系数 (u 无关, 提出循环) ----
+S     = CCr*CFe_m / (CCr + 2*CFe_m + p.epsC);   % FeCr2O4: Fe-Cr 共消耗 (1 Fe : 2 Cr)
+aCr   = p.kCr * CCr;
+aSi   = p.kSi * CSi;
+aMag  = p.kFe * CFe_m;
+aSpin = p.kspin * S;
+ 
+% ---- 括根区间 [a,b]: F(a)>=0, F(b)<=0 严格成立 ----
+a = 0;
+b = CO_gb + 0.5*p.epsP*(aCr + aSi + aMag + aSpin)/g;   % Ppos>=-eps/2 的严格上界
+ 
+% ---- 初值: 热启动取上次界面 O, 冷启动 = "膜不挡"极限 u = CO_gb ----
+if nargin < 11 || isempty(uu0) || any(~isfinite(uu0))
+    u = CO_gb;
 else
-    uu = uu0;                                  % 热启动: 上次 rhs 调用的解
+    u = min(max(uu0(2), a), b);
 end
-
-% ---- 阻尼牛顿主循环: §8-9, Eq.15 ----
+ 
+% ---- 牛顿 + 二分保底 ----
 ok = false;
-for it = 1:30
-    R = res(uu);                               % 残差 = Eq.11-14 移项
-    nR = norm(R, inf);
-    if nR < p.tolNode, ok = true; break; end   % 四条守恒同时满足 => 收敛
-    J = zeros(4);                              % 数值 Jacobian (§8)
-    h = 1e-7 * max(abs(uu), 1e-6);
-    for c = 1:4
-        up = uu; up(c) = up(c) + h(c);
-        J(:,c) = (res(up) - R) / h(c);         % 第 c 列 = dR/du_c
+for it = 1:60
+    [F, dF] = res(u);
+    if abs(F) < p.tolNode, ok = true; break; end
+    if F > 0, a = u; else, b = u; end          % F 单调减 => 括号收缩
+    un = u - F/dF;                             % 牛顿步
+    if ~isfinite(un) || un <= a || un >= b
+        un = 0.5*(a + b);                      % 出括号 => 二分
     end
-    d = - J \ R;                               % 牛顿方向: 解 J d = -R
-    if any(~isfinite(d)), break; end
-    lam = 1.0;                                 % 回溯线搜索 (§9a)
-    for ls = 1:6
-        uun = max(uu + lam*d, 0);              % 非负投影 (§9b)
-        if norm(res(uun), inf) <= (1 - 0.25*lam)*nR + p.tolNode
-            uu = uun; break                    % Armijo 判据: 残差充分下降才接受
-        end
-        lam = lam/2;
-        if ls == 6, uu = max(uu + lam*d, 0); end
+    u = un;
+end
+ 
+[~, ~, q] = res(u);                            % 收敛解代回 => 输出速率
+uu = [u; u; CFe_m; CNi_m];
+ 
+% ---- 残差: 单条守恒, 物理全部在此 ----
+    function [F, dF, qv] = res(v)
+        [P1, d1] = PposD(v,            p.epsP);   % E_Cr = E_Si = 0
+        [P2, d2] = PposD(v - p.E_mag,  p.epsP);
+        [P3, d3] = PposD(v - p.E_spin, p.epsP);
+        qCr   = aCr   * P1;
+        qSi   = aSi   * P1;
+        qMag  = aMag  * P2;
+        qSpin = aSpin * P3;
+        F  = g*(CO_gb - v) - (qCr + qSi + qMag + qSpin);
+        dF = -g - ((aCr + aSi)*d1 + aMag*d2 + aSpin*d3);
+        qv = [qCr; qSi; qMag; qSpin];
     end
 end
-[~, q] = res(uu);                              % 收敛解代回 Eq.6-9 => 输出速率
-
-% ---- 残差函数: 模型物理全部在此 ----
-    function [R, qv] = res(v)
-        u1 = v(1); u2 = v(2); f = v(3); n = v(4);
-        % 混合闭合 (Eq.7-10): 共享物种(O,Fe)一级, 私有共消耗走调和 S — 见 §3.1 R1/R2
-        qCr  = p.kCr * CCr * Ppos(u1,           p.epsP);   % Eq.7  (E_Cr=0)
-        qSi  = p.kSi * CSi * Ppos(u1,           p.epsP);   % Eq.8  (E_Si=0)
-        qMag = p.kFe * f   * Ppos(u2 - p.E_mag, p.epsP);   % Eq.9  供给是 f 不是 C_Fe,m
-        S    = f*n / (f + 2*n + p.epsC);                   % Eq.10 的 S, epsC 防 0/0
-        qTr  = p.kNi * S   * Ppos(u2 - p.E_trev, p.epsP);  % Eq.10
-        R = [ g_out*(CO_gb - u2) - (qMag + qTr) - g_in*(u2 - u1);  % Eq.11
-              g_in *(u2 - u1)    - (qCr + qSi);                    % Eq.12
-              g_Fe *(CFe_m - f)  - (0.75*qMag + 0.5*qTr);          % Eq.13
-              g_Ni *(CNi_m - n)  - 0.25*qTr ];                     % Eq.14
-        qv = [qCr; qSi; qMag; qTr];
-    end
-end
-
-function y = Ppos(x, epsP)                     % 平滑正部 (§7): (x)+ 的磨圆版
-y = 0.5*(x + sqrt(x.^2 + epsP^2)) - 0.5*epsP; 
+ 
+function [y, dy] = PposD(x, epsP)              % 平滑正部及其导数
+r  = sqrt(x.^2 + epsP^2);
+y  = 0.5*(x + r) - 0.5*epsP;
+dy = 0.5*(1 + x./r);
 end

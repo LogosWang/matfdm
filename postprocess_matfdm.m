@@ -14,13 +14,13 @@ Cr_t = reshape(Y(2*N+1:3*N,:), ny,nx,nt);   Fe_t = reshape(Y(3*N+1:4*N,:), ny,nx
 Ni_t = reshape(Y(4*N+1:5*N,:), ny,nx,nt);   Si_t = reshape(Y(5*N+1:6*N,:), ny,nx,nt);
 b = 6*N;
 O_t       = Y(b+     1:b+  ny,:);  Cr2O3_t = Y(b+  ny+1:b+2*ny,:);
-Fe3O4_t   = Y(b+2*ny+1:b+3*ny,:);  NiFe2O4_t = Y(b+3*ny+1:b+4*ny,:);
+Fe3O4_t   = Y(b+2*ny+1:b+3*ny,:);  FeCr2O4_t = Y(b+3*ny+1:b+4*ny,:);
 SiO2_t    = Y(b+4*ny+1:b+5*ny,:);
  
 % ---------- 落盘: 完整时间轨迹 ----------
 save(fullfile(outdir,'fields_timeseries.mat'), ...
      'V_t','I_t','Cr_t','Fe_t','Ni_t','Si_t', ...
-     'O_t','Cr2O3_t','Fe3O4_t','NiFe2O4_t','SiO2_t','t_out','p','-v7.3');
+     'O_t','Cr2O3_t','Fe3O4_t','FeCr2O4_t','SiO2_t','t_out','p','-v7.3');
  
 % ---------- 落盘: 最终时刻快照 ----------
 writematrix(V_t (:,:,end), fullfile(outdir,'V_final.csv'));
@@ -32,7 +32,7 @@ writematrix(Si_t(:,:,end), fullfile(outdir,'Si_final.csv'));
 writematrix(O_t      (:,end), fullfile(outdir,'O_final.csv'));
 writematrix(Cr2O3_t  (:,end), fullfile(outdir,'Cr2O3_final.csv'));
 writematrix(Fe3O4_t  (:,end), fullfile(outdir,'Fe3O4_final.csv'));
-writematrix(NiFe2O4_t(:,end), fullfile(outdir,'NiFe2O4_final.csv'));
+writematrix(FeCr2O4_t(:,end), fullfile(outdir,'FeCr2O4_final.csv'));
 writematrix(SiO2_t   (:,end), fullfile(outdir,'SiO2_final.csv'));
  
 % ================= 绘图 (与 main 一致, -nodisplay 下正常保存 png) =================
@@ -68,9 +68,9 @@ set(gca,'FontSize',20); legend('show','Location','best','FontSize',14);
 savepng('O_along_GB');
  
 % --- 图 14-17: 氧化物厚度沿 y ---
-oxides_1D   = {Cr2O3_t, Fe3O4_t, NiFe2O4_t, SiO2_t};
-oxide_lbl   = {'Cr_2O_3','Fe_3O_4','NiFe_2O_4','SiO_2'};
-oxide_fname = {'Cr2O3','Fe3O4','NiFe2O4','SiO2'};
+oxides_1D   = {Cr2O3_t, Fe3O4_t, FeCr2O4_t, SiO2_t};
+oxide_lbl   = {'Cr_2O_3','Fe_3O_4','FeCr_2O_4','SiO_2'};
+oxide_fname = {'Cr2O3','Fe3O4','FeCr2O4','SiO2'};
 for f = 1:4
     figure(14+f); clf; hold on; box on;
     for k = 1:numel(idx)
@@ -88,9 +88,9 @@ end
 figure(19); clf; hold on; box on;
 plot(y, Cr2O3_t(:,end),  'LineWidth',3,'DisplayName','Cr_2O_3');
 plot(y, Fe3O4_t(:,end),  'LineWidth',3,'DisplayName','Fe_3O_4');
-plot(y, NiFe2O4_t(:,end),'LineWidth',3,'DisplayName','NiFe_2O_4');
+plot(y, FeCr2O4_t(:,end),'LineWidth',3,'DisplayName','FeCr_2O_4');
 plot(y, SiO2_t(:,end),   'LineWidth',3,'DisplayName','SiO_2');
-plot(y, Cr2O3_t(:,end)+Fe3O4_t(:,end)+NiFe2O4_t(:,end)+SiO2_t(:,end), ...
+plot(y, Cr2O3_t(:,end)+Fe3O4_t(:,end)+FeCr2O4_t(:,end)+SiO2_t(:,end), ...
      'LineWidth',3,'LineStyle','--','DisplayName','Total oxide');
 xlabel('y (nm) — along GB','FontSize',24)
 ylabel(sprintf('Oxide Concentration at t = %.2e s', t_out(end)),'FontSize',24)

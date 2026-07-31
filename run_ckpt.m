@@ -80,8 +80,8 @@ CNi=ones(ny,nx)*p.Ni_init; CNi(:,nx)=p.Ni_DCB;
 CSi=ones(ny,nx)*p.Si_init; CSi(:,nx)=p.Si_DCB;
 CO=ones(ny,1)*p.O_init; CO(1,1)=p.O_DCB;
 CCr2O3=ones(ny,1)*p.Cr2O3_init; CFe3O4=ones(ny,1)*p.Fe3O4_init;
-CNiFe2O4=ones(ny,1)*p.NiFe2O4_init; CSiO2=ones(ny,1)*p.SiO2_init;
-y0=[V(:);I(:);CCr(:);CFe(:);CNi(:);CSi(:);CO(:);CCr2O3(:);CFe3O4(:);CNiFe2O4(:);CSiO2(:)];
+CFeCr2O4=ones(ny,1)*p.FeCr2O4_init; CSiO2=ones(ny,1)*p.SiO2_init;
+y0=[V(:);I(:);CCr(:);CFe(:);CNi(:);CSi(:);CO(:);CCr2O3(:);CFe3O4(:);CFeCr2O4(:);CSiO2(:)];
 end
  
 function absTol = build_abstol(M, N, p)
