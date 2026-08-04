@@ -5,5 +5,5 @@
  
 clearvars; clear rhs_aks;
  
-p = build_p_decouple(0.0);
+p = build_p_decouple(0.0); 
 run_ckpt_decouple(p); 
