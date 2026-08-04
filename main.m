@@ -7,7 +7,7 @@ p.dt    = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;       % 显式 Euler 用；ode15s 也会用这个值
 p.dx    = 0.3;
 p.dy = 2;
-p.t_end = 5e5;
+p.t_end = 0.833e5;
 
 p.V_init = 1e-12;
 p.V_DBC  = 1e-12;
@@ -22,17 +22,17 @@ p.DV = [DCrV, DFeV, DNiV,DSiV];
 DCrI = 2e6;
 DFeI = 2e6;
 DNiI = 2e6;
-DSiI = 5e6;
+DSiI = 6e6;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.6;
 p.f0I = 0.6;
 p.dose_rate   = 6e-6;
 p.recomb_rate = 1e4;
 p.Ks = 0.0;
-p.Cr_init = 0.211;   p.Cr_DCB = 0.211;
-p.Fe_init = 0.699;   p.Fe_DCB = 0.699;
-p.Ni_init = 0.085;   p.Ni_DCB = 0.085;
-p.Si_init = 0.005;   p.Si_DCB = 0.005;
+p.Cr_init = 0.2;   p.Cr_DCB = 0.2;
+p.Fe_init = 0.7083;   p.Fe_DCB = 0.7083;
+p.Ni_init = 0.089;   p.Ni_DCB = 0.089;
+p.Si_init = 0.0027;   p.Si_DCB = 0.0027;
 p.solver = 1;          % 0 = 显式 Euler；1 = ode15s
 
 %% 初值（行向量，把 BC 值塞到端点）
