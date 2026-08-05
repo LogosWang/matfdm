@@ -58,6 +58,16 @@ writematrix(Fe_1(:,:,end), fullfile(outdir,'Fe_irrfinal.csv'));
 writematrix(Ni_1(:,:,end), fullfile(outdir,'Ni_irrfinal.csv'));
 writematrix(Si_1(:,:,end), fullfile(outdir,'Si_irrfinal.csv'));
 
+% Calibration runs are data-only by default.  Keep MAT/CSV outputs required
+% by metric extraction, but skip all figure construction and PNG export.
+% Set CALIB_ENABLE_PLOTS=1 explicitly to restore the original plots.
+enable_plots = strtrim(getenv('CALIB_ENABLE_PLOTS'));
+is_calibration = isfield(p,'case_tag') && ~isempty(p.case_tag);
+if is_calibration && ~any(strcmpi(enable_plots, {'1','true','yes','on'}))
+    fprintf('后处理完成 (decouple, no plots), MAT/CSV -> %s\n', outdir);
+    return
+end
+
 % ================= 绘图 =================
 x = (0:nx-1)*p.dx;  y = (0:ny-1)*p.dy;  j_mid = round(ny/2);
 idx1 = 1:10:nt1;  colors1 = parula(numel(idx1));

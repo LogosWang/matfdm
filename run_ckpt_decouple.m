@@ -15,8 +15,15 @@ function run_ckpt_decouple(p)
 % ---------- 路径 ----------
 codedir = fileparts(mfilename('fullpath'));
 tag     = sprintf('%g', p.dose);
-outdir  = fullfile(codedir, 'decouple', ['dose' tag]);
-ckptdir = fullfile(codedir, 'checkpoint', ['decouple_dose' tag]);
+if isfield(p,'case_tag') && ~isempty(p.case_tag)
+    case_tag = char(p.case_tag);
+else
+    case_tag = 'default';
+end
+assert(~isempty(regexp(case_tag,'^[A-Za-z0-9_-]+$','once')), ...
+       'case_tag may only contain letters, digits, _ and -');
+outdir  = fullfile(codedir, 'decouple', case_tag, ['dose' tag]);
+ckptdir = fullfile(codedir, 'checkpoint', case_tag, ['decouple_dose' tag]);
 if ~exist(outdir,'dir'),  mkdir(outdir);  end
 if ~exist(ckptdir,'dir'), mkdir(ckptdir); end
 ckpt = fullfile(ckptdir, 'checkpoint.mat');
@@ -66,7 +73,7 @@ else
 
     kstart = 1;  kdone = 0;
     Y2 = nan(M, nS+1);  Y2(:,1) = y0;
-    save(ckpt, 'kdone','y0','Y1','Y2','t1','t2','p1','p2','-v7.3');
+    save_checkpoint_atomic(ckpt,kdone,y0,Y1,Y2,t1,t2,p1,p2);
     fprintf('[handoff] 转氧化段: %d 窗, t=%.3e s (%.0f h)\n', nS, p.oxi_time, p.oxi_time/3600);
 end
 
@@ -74,7 +81,7 @@ end
 for k = kstart:nS
     seg = ode15s(@(t,y) rhs_aks(t,y,p2), [t2(k) t2(k+1)], y0, opts);
     y0  = seg.y(:, end);   Y2(:, k+1) = y0;   kdone = k;
-    save(ckpt, 'kdone','y0','Y1','Y2','t1','t2','p1','p2','-v7.3');
+    save_checkpoint_atomic(ckpt,kdone,y0,Y1,Y2,t1,t2,p1,p2);
     fprintf('[ckpt] 氧化 %d/%d  t=%.3e s  累计 %.0f s\n', k, nS, t2(k+1), toc(tStart));
     if toc(tStart) > WALL_BUDGET
         fprintf('[wall] 预算耗尽, 已存 checkpoint, 退出等重排\n');
@@ -103,6 +110,13 @@ CO=ones(ny,1)*p.O_init;              % Robin BC: 口部不再钉 O_DCB
 CCr2O3=ones(ny,1)*p.Cr2O3_init; CFe3O4=ones(ny,1)*p.Fe3O4_init;
 CFeCr2O4=ones(ny,1)*p.FeCr2O4_init; CSiO2=ones(ny,1)*p.SiO2_init;
 y0=[V(:);I(:);CCr(:);CFe(:);CNi(:);CSi(:);CO(:);CCr2O3(:);CFe3O4(:);CFeCr2O4(:);CSiO2(:)];
+end
+
+function save_checkpoint_atomic(ckpt,kdone,y0,Y1,Y2,t1,t2,p1,p2)
+tmp = [ckpt '.tmp'];
+save(tmp, 'kdone','y0','Y1','Y2','t1','t2','p1','p2','-v7.3');
+[ok,msg] = movefile(tmp,ckpt,'f');
+assert(ok, 'checkpoint atomic replace failed: %s', msg);
 end
 
 function absTol = build_abstol(M, N, p)

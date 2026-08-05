@@ -2,3 +2,28 @@
 *.csv
 *.mat
 *.png
+
+# Calibration runtime state (not code)
+calibration/__pycache__/
+calibration/controller-runtime.json
+calibration/controller-status.json
+calibration/controller.lock
+calibration/state.json
+calibration/archive/
+calibration/metrics/
+
+# CMA optimizer runtime state snapshots
+calibration/optimizer/*.pkl
+calibration/optimizer/*.json
+calibration/optimizer/*_cma_generation.json
+calibration/optimizer/*_cma_state.pkl
+calibration/optimizer/*_covariance.csv
+calibration/optimizer/*_fitness_history.csv
+calibration/optimizer/*_mean_log_multipliers.csv
+calibration/optimizer/*_proposed_steps.json
+
+# Run output data
+decouple/
+checkpoint/
+__pycache__/
+*.pyc
