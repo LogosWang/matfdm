@@ -32,10 +32,15 @@ Fe3O4_t   = Y2(b+2*ny+1:b+3*ny,:);  FeCr2O4_t = Y2(b+3*ny+1:b+4*ny,:);
 SiO2_t    = Y2(b+4*ny+1:b+5*ny,:);
 
 % ---------- 落盘: 氧化段完整轨迹 ----------
+% 标定模式 (CALIB_KEEP_TRAJ=0, 默认) 跳过: 指标只读 4 个 *_final.csv,
+% 而每腿这个文件 ~7 MB, 90 腿/代 会把 scratch 撑爆。想留轨迹设 CALIB_KEEP_TRAJ=1。
 t_out = t2;
-save(fullfile(outdir,'fields_timeseries.mat'), ...
-     'V_t','I_t','Cr_t','Fe_t','Ni_t','Si_t', ...
-     'O_t','Cr2O3_t','Fe3O4_t','FeCr2O4_t','SiO2_t','t_out','p','-v7.3');
+keep_traj = getenv('CALIB_KEEP_TRAJ');
+if isempty(keep_traj) || ~strcmp(strtrim(keep_traj), '0')
+    save(fullfile(outdir,'fields_timeseries.mat'), ...
+         'V_t','I_t','Cr_t','Fe_t','Ni_t','Si_t', ...
+         'O_t','Cr2O3_t','Fe3O4_t','FeCr2O4_t','SiO2_t','t_out','p','-v7.3');
+end
 
 % ---------- 落盘: 氧化段末态 (生产同名) ----------
 writematrix(V_t (:,:,end), fullfile(outdir,'V_final.csv'));

@@ -36,7 +36,7 @@ NAMES = ["kCr", "kFe", "kSi", "kspin", "DCr2O3O", "DFe3O4",
 LOWER = np.full(10, math.log(0.03))
 UPPER = np.full(10, math.log(60.0))
 DOMAIN_WIDTH = UPPER - LOWER
-POPULATION = 10
+POPULATION = int(os.environ.get("CALIB_POPULATION", "10"))
 CONSTRAINT_PENALTY = 1.0e4
 FORMAT_VERSION = 1
 
@@ -402,12 +402,39 @@ def main() -> None:
             raise RuntimeError(f"completed batch {completed} has no complete metrics")
     elif payload.get("told_batches"):
         raise RuntimeError("cannot initialize generation 1 after CMA history was told")
+    # ---- 采纳磁盘上已有的本代提案, 而不是重新 ask ----
+    # 触发场景: 上次运行 ask 过(state.json 已有 batchNN_cases)但 cma_state.pkl
+    # 丢失/损坏。若此时重新 ask, 同名 case (b0N_c01_cma ...) 会拿到不同乘子,
+    # 与已算完的结果、半路的 checkpoint 错配 —— fitness 直接污染。
+    # 采纳后 case 与参数保持原样, 已完成的腿仍然有效。
+    existing = state.get(f"batch{requested_batch:02d}_cases")
+    if (existing and os.environ.get("CALIB_ADOPT_EXISTING", "1") == "1"
+            and payload.get("pending_batch") != requested_batch):
+        if len(existing) != POPULATION:
+            raise RuntimeError(
+                f"batch {requested_batch} 磁盘上有 {len(existing)} 个 case, "
+                f"与 POPULATION={POPULATION} 不符; 人工确认后再跑")
+        payload["pending_batch"] = requested_batch
+        payload["pending_proposals"] = existing
+        payload["pending_x"] = [np.log(np.asarray(case["mult"], dtype=float)).tolist()
+                                for case in existing]
+        state["phase"] = f"batch{requested_batch:02d}_ready"
+        optimizer = state.setdefault("optimizer", {})
+        optimizer["latest"] = diagnostics(payload)
+        persist_outputs(payload, state, existing)
+        atomic_json(STATE, state)
+        print(json.dumps({"adopted_existing": True, "batch": requested_batch,
+                          "cases": len(existing)}, indent=2))
+        return
+
     payload = maybe_restart(payload)
     proposals = ask_population(payload, state, requested_batch)
     state[f"batch{requested_batch:02d}_cases"] = proposals
     state["phase"] = f"batch{requested_batch:02d}_ready"
-    state.setdefault("optimizer", {})["previous"] = state["optimizer"].get("latest", {})
-    state["optimizer"]["latest"] = diagnostics(payload)
+    # 赋值语句先求右侧: 原写法在 state 无 optimizer 键时(冷启动)会 KeyError。
+    optimizer = state.setdefault("optimizer", {})
+    optimizer["previous"] = optimizer.get("latest", {})
+    optimizer["latest"] = diagnostics(payload)
     persist_outputs(payload, state, proposals)
     atomic_json(STATE, state)
     print(json.dumps({"cma": diagnostics(payload), "cases": proposals}, indent=2))

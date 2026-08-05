@@ -69,7 +69,11 @@ def tmux_alive(session: str) -> bool:
 
 
 def leg_complete(tag: str, dose: str) -> bool:
+    # 与 MATLAB 侧 leg_is_complete.m 同一判据: 必须有 _COMPLETE 标记。
+    # 只看 csv 非空会把"被杀在最后一个 csv 写一半"误判为完成。
     folder = RUN / "decouple" / tag / f"dose{dose}"
+    if not (folder / "_COMPLETE").exists():
+        return False
     files = [folder / f"{phase}_final.csv" for phase in PHASES]
     return all(path.exists() and path.stat().st_size > 0 for path in files)
 

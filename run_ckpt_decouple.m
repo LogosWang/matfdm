@@ -66,7 +66,9 @@ else
         Y1 = repmat(y0, 1, nS+1);             % dose=0 对照腿: 跳过辐照
         fprintf('[irr] dose=0, 跳过辐照段\n');
     end
-    save(fullfile(outdir,'irr_timeseries.mat'), 'Y1','t1','p1','-v7.3');
+    if isempty(getenv('CALIB_KEEP_TRAJ')) || ~strcmp(strtrim(getenv('CALIB_KEEP_TRAJ')),'0')
+        save(fullfile(outdir,'irr_timeseries.mat'), 'Y1','t1','p1','-v7.3');
+    end
 
     % ---- 交接: Robin BC 下 mouth O 是真实状态量, 无需置位 ----
     % 从辐照段末值(=0)起, 由表面膜阻抗 kRobin/(sqrt(t)+10) 向 O_DCB 充电。
@@ -85,7 +87,11 @@ for k = kstart:nS
     fprintf('[ckpt] 氧化 %d/%d  t=%.3e s  累计 %.0f s\n', k, nS, t2(k+1), toc(tStart));
     if toc(tStart) > WALL_BUDGET
         fprintf('[wall] 预算耗尽, 已存 checkpoint, 退出等重排\n');
-        if batchStartupOptionUsed, exit(0); else, return; end
+        if batchStartupOptionUsed && isempty(getenv('CALIB_NO_EXIT'))
+            exit(0);                 % 独立腿模式: 退出让调度器续投
+        else
+            return;                  % pool worker / 交互: 只返回, 不杀进程
+        end
     end
 end
 
@@ -94,7 +100,12 @@ fprintf('[done] 两段完成, 后处理 -> %s\n', outdir);
 sel = round(linspace(1, nS+1, 10*p.num_output+1));
 postprocess_decouple(Y1(:,sel), t1(sel), Y2(:,sel), t2(sel), p1, outdir);
 delete(ckpt);
-if batchStartupOptionUsed, exit(0); end
+% 完成标记必须最后写: 全部 csv 落盘之后。硬杀在 postprocess 中途 -> 无标记 -> 重跑,
+% 不会把写了一半的 csv 当成结果 (见 leg_is_complete.m)。
+fid = fopen(fullfile(outdir,'_COMPLETE'), 'w');
+fprintf(fid, '%s\ncase=%s dose=%g\n', datestr(now,'yyyy-mm-dd HH:MM:SS'), case_tag, p.dose);
+fclose(fid);
+if batchStartupOptionUsed && isempty(getenv('CALIB_NO_EXIT')), exit(0); end
 end
 
 % =====================================================================
