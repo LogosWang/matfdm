@@ -80,8 +80,8 @@ dCr = dsolutedt(J_Cr_x, J_Cr_y, p.dx, p.dy,J_r_Cr);
 dFe = dsolutedt(J_Fe_x, J_Fe_y, p.dx, p.dy,J_r_Fe);
 dNi = dsolutedt(J_Ni_x, J_Ni_y, p.dx, p.dy,J_r_Ni);
 dSi = dsolutedt(J_Si_x, J_Si_y, p.dx, p.dy,J_r_Si);
-dV  = dVdt (J_V_x,J_V_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate,lattice_velocity_x);
-dI  =  dIdt (J_I_x,J_I_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate,lattice_velocity_x);
+dV  = dVdt (J_V_x,J_V_y,p.dx,  p.dy,I, V,   p.eff*p.dose_rate, p.recomb_rate,lattice_velocity_x);
+dI  =  dIdt (J_I_x,J_I_y,p.dx,  p.dy,I, V,   p.eff*p.dose_rate, p.recomb_rate,lattice_velocity_x);
 % Dirichlet 导数置零
 dV(:,1)    = 0;
 dI(:,1)      = 0;
