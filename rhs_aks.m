@@ -181,8 +181,8 @@ dFe = dsolutedt(J_Fe_x, J_Fe_y, p.dx, p.dy,J_r_Fe);
 dNi = dsolutedt(J_Ni_x, J_Ni_y, p.dx, p.dy,J_r_Ni);
 dNi(:,1) = dNi(:,1) + dNi_gb;
 dSi = dsolutedt(J_Si_x, J_Si_y, p.dx, p.dy,J_r_Si);
-dV  = dVdt (J_V_x,J_V_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate, p.V_init,p.I_init,p.Ks,lattice_velocity_x);
-dI  =  dIdt (J_I_x,J_I_y,p.dx,  p.dy,I, V,   p.dose_rate, p.recomb_rate, p.I_init, p.V_init,p.Ks,lattice_velocity_x);
+dV  = dVdt (J_V_x,J_V_y,p.dx,  p.dy,I, V,  p.eff* p.dose_rate, p.recomb_rate, p.V_init,p.I_init,p.Ks,lattice_velocity_x);
+dI  =  dIdt (J_I_x,J_I_y,p.dx,  p.dy,I, V,  p.eff* p.dose_rate, p.recomb_rate, p.I_init, p.V_init,p.Ks,lattice_velocity_x);
 
 Q_O = sum(q_all, 2);
 % Robin BC: 出向法向流 J·n = kRobin/(sqrt(t)+10)*(C - O_DCB), 换成 +y(入通道)为正:
