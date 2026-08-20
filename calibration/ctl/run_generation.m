@@ -22,7 +22,10 @@ repo = getenv('CALIB_REPO_DIR');
 if isempty(repo), repo = fileparts(fileparts(here)); end
 addpath(repo);  addpath(here);
 
-calib   = fullfile(repo, 'calibration');
+% 数据根: $MATFDM_RUN (未设则回退代码目录, 兼容旧用法)
+rundir  = getenv('MATFDM_RUN');
+if isempty(rundir), rundir = repo; end
+calib   = fullfile(rundir, 'calibration');
 statef  = fullfile(calib, 'state.json');
 logdir  = fullfile(calib, 'logs');
 if ~exist(logdir, 'dir'), mkdir(logdir); end
@@ -36,12 +39,19 @@ python   = getenv('CALIB_PYTHON');
 if isempty(python), python = 'python3'; end
 gentool  = fullfile(here, 'gen_tool.py');
 
+% ---- 运行配置: <run>/config.json 是唯一真相源, 环境变量只作临时覆盖 ----
+cfg = read_run_config();
+if isnan(str2double(getenv('CALIB_POPULATION'))), popsize = cfg.population; end
+if isnan(str2double(getenv('CALIB_WORKERS'))),    workers = cfg.workers;    end
+if isnan(str2double(getenv('CALIB_ENDPOINT_TOL'))), tol   = cfg.endpoint_tol; end
+doses_cfg = cfg.doses(:)';
+
 tStart = tic;
 if isfinite(budget)
     say('[boot] repo=%s workers=%d pop=%d budget=%.0f s', repo, workers, popsize, budget);
 else
-    say('[boot] repo=%s workers=%d pop=%d 无代码侧时限 (跑到 SLURM 杀)', ...
-        repo, workers, popsize);
+    say('[boot] code=%s run=%s workers=%d pop=%d 无代码侧时限', ...
+        repo, rundir, workers, popsize);
 end
 
 % ---------- parpool: 整个作业只开一次 ----------
@@ -75,29 +85,33 @@ while true
 
     % 续跑摘要: 打印 CMA 持久状态 + 全历史 fitness (作业重启后一眼看出从哪捡起)
     [~, hist] = sh(sprintf('%s %s history %d', python, q(gentool), batch), ...
-                   repo, popsize, python);
+                   rundir, popsize, python);
     fprintf('%s', hist);
 
     % 提议本代 (幂等: pending_batch 命中则原样重发, 不推进 CMA)
-    rc = sh(sprintf('%s %s propose %d', python, q(gentool), batch), ...
-            repo, popsize, python);
+    [rc, out] = sh(sprintf('%s %s propose %d', python, q(gentool), batch), ...
+                   rundir, popsize, python);
+    if rc ~= 0
+        say('[propose] rc=%d, python 输出如下:', rc);   % 失败时必须把真实报错打出来
+        fprintf('%s\n', out);
+    end
     if rc ~= 0 && batch > 1
         % 常见死锁: 上一代有 case 既没指标也没被熔断 -> CMA 拒绝 tell。
         % 一次性惩罚这些 case 后重试, 避免续投链无限重复同一个失败。
         say('[propose] 失败, 尝试惩罚上一代缺指标的 case 后重试');
         sh(sprintf('%s %s penalize-missing %d', python, q(gentool), batch-1), ...
-           repo, popsize, python);
+           rundir, popsize, python);
         rc = sh(sprintf('%s %s propose %d', python, q(gentool), batch), ...
-                repo, popsize, python);
+                rundir, popsize, python);
     end
     if rc ~= 0
         error('run_generation:propose', 'CMA-ES 提议失败, batch %d', batch);
     end
     cases = read_cases(statef, batch);
-    say('[gen %02d] %d cases x 3 dose = %d legs', batch, numel(cases), 3*numel(cases));
+    say('[gen %02d] %d cases x %d dose = %d legs', batch, numel(cases), numel(doses_cfg), numel(doses_cfg)*numel(cases));
 
     % ---- 撒腿 ----
-    doses = [0, 0.5, 3];
+    doses = doses_cfg;
     if isfinite(budget)
         legBudget = max(600, budget - toc(tStart) - 300);   % 腿自留 5 min 存盘
     else
@@ -109,9 +123,9 @@ while true
         tag  = cases(i).case_tag;
         mult = cases(i).mult(:)';
         for d = doses
-            if leg_is_complete(repo,tag, d), continue; end
+            if leg_is_complete(rundir,tag, d), continue; end
             F(end+1,1) = parfeval(pool, @run_leg_worker, 1, ...
-                                  repo, tag, d, mult, legBudget); %#ok<AGROW>
+                                  repo, rundir, tag, d, mult, legBudget); %#ok<AGROW>
             meta{end+1} = sprintf('%s/dose%g', tag, d);            %#ok<AGROW>
         end
     end
@@ -121,7 +135,7 @@ while true
     end
 
     % ---- 回收 (worker 内部已 try/catch, fetchNext 不会抛) ----
-    attemptsFile = fullfile(here, 'attempts.json');
+    attemptsFile = fullfile(calib, 'attempts.json');
     A = load_attempts(attemptsFile);
     maxAttempts = envnum('CALIB_MAX_ATTEMPTS', 3);
     nDone = 0;  tGen = tic;
@@ -150,7 +164,7 @@ while true
         tag = cases(i).case_tag;
         for d = doses
             k = keyof(sprintf('%s/dose%g', tag, d));
-            if ~leg_is_complete(repo,tag, d) && getfielddef(A, k, 0) >= maxAttempts
+            if ~leg_is_complete(rundir,tag, d) && getfielddef(A, k, 0) >= maxAttempts
                 dead{end+1} = tag; %#ok<AGROW>
                 break
             end
@@ -159,7 +173,7 @@ while true
     dead = unique(dead);
     for i = 1:numel(dead)
         sh(sprintf('%s %s penalize %d --tag %s', python, q(gentool), batch, dead{i}), ...
-           repo, popsize, python);
+           rundir, popsize, python);
         say('[dead] %s 连续失败 >=%d 次, 已写惩罚指标', dead{i}, maxAttempts);
     end
 
@@ -168,7 +182,7 @@ while true
     for i = 1:numel(cases)
         if any(strcmp(cases(i).case_tag, dead)), continue; end
         for d = doses
-            if ~leg_is_complete(repo,cases(i).case_tag, d), incomplete = incomplete + 1; end
+            if ~leg_is_complete(rundir,cases(i).case_tag, d), incomplete = incomplete + 1; end
         end
     end
     if incomplete > 0
@@ -185,13 +199,13 @@ while true
         catch err
             say('[metrics] %s 失败: %s', tag, err.message);
             sh(sprintf('%s %s penalize %d --tag %s', python, q(gentool), batch, tag), ...
-               repo, popsize, python);
+               rundir, popsize, python);
         end
     end
 
     % ---- 判成功 ----
     [rc, out] = sh(sprintf('%s %s success %d --tol %g', ...
-                           python, q(gentool), batch, tol), repo, popsize, python);
+                           python, q(gentool), batch, tol), rundir, popsize, python);
     say('[gen %02d] %s', batch, strtrim(out));
     w = regexp(out, 'WINNERS=(\S+)', 'tokens', 'once');
     if rc == 0 && ~isempty(w) && ~isempty(strtrim(w{1}))
@@ -200,7 +214,7 @@ while true
         say('[done] 命中: %s', strtrim(w{1}));
         break
     end
-    sh(sprintf('%s %s report %d', python, q(gentool), batch), repo, popsize, python);
+    sh(sprintf('%s %s report %d', python, q(gentool), batch), rundir, popsize, python);
 end
 
 say('[exit] 总耗时 %.1f h', toc(tStart)/3600);
@@ -243,8 +257,13 @@ end
 
 % 完成判据统一走仓库根的 leg_is_complete.m (要求 _COMPLETE 标记), 此处不再本地实现
 
-function [rc, out] = sh(cmd, repo, popsize, ~)
-env = sprintf(['CALIB_REPO_DIR=%s CALIB_POPULATION=%d '], q(repo), popsize);
+function [rc, out] = sh(cmd, rundir, popsize, ~)
+% env -u LD_LIBRARY_PATH: MATLAB 把自己的库路径塞进 LD_LIBRARY_PATH,
+% 直接继承会让 module 加载的 conda python 起不来 (符号冲突)。
+env = sprintf(['env -u LD_LIBRARY_PATH MATFDM_RUN=%s CALIB_REPO_DIR=%s ' ...
+               'CALIB_STATE_PATH=%s CALIB_OUT_DIR=%s CALIB_POPULATION=%d'], ...
+              q(rundir), q(rundir), q(fullfile(rundir,'calibration','state.json')), ...
+              q(fullfile(rundir,'calibration','optimizer')), popsize);
 [rc, out] = system([env ' ' cmd]);
 end
 

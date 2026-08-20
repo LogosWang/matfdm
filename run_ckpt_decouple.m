@@ -12,8 +12,13 @@ function run_ckpt_decouple(p)
 % checkpoint: <codedir>/checkpoint/decouple_dose<p.dose>/checkpoint.mat (仅氧化段)
 %            辐照段中断则整段重跑 (按要求不设 ckpt)
 
-% ---------- 路径 ----------
-codedir = fileparts(mfilename('fullpath'));
+% ---------- 路径: 数据写进运行目录, 不写进代码目录 ----------
+% p.rundir 优先 (标定驱动传入), 否则用 run_root() (= $MATFDM_RUN, 未设则代码目录)
+if isfield(p,'rundir') && ~isempty(p.rundir)
+    codedir = char(p.rundir);
+else
+    codedir = run_root();
+end
 tag     = sprintf('%g', p.dose);
 if isfield(p,'case_tag') && ~isempty(p.case_tag)
     case_tag = char(p.case_tag);
@@ -66,7 +71,7 @@ else
         Y1 = repmat(y0, 1, nS+1);             % dose=0 对照腿: 跳过辐照
         fprintf('[irr] dose=0, 跳过辐照段\n');
     end
-    if isempty(getenv('CALIB_KEEP_TRAJ')) || ~strcmp(strtrim(getenv('CALIB_KEEP_TRAJ')),'0')
+    if isfield(p,'keep_traj') && p.keep_traj
         save(fullfile(outdir,'irr_timeseries.mat'), 'Y1','t1','p1','-v7.3');
     end
 

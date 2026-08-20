@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""打印当前目标函数下最好的 N 个 case, 含每个参数的乘子与绝对值。
+
+绝对值 = build_p_decouple.m 里的基线 × CMA 给的乘子, 与 run_calibration_case.m
+里实际代入模型的值一致 (包括 DCr2O3 跟随 DCr2O3O、DO0 跟随 DSiO2 这两处绑定)。
+
+用法 (仓库根目录):
+    module load python
+    CALIB_REPO_DIR=$PWD CALIB_POPULATION=40 python3 calibration/ctl/show_best.py
+    ... show_best.py --top 3            只看前三
+    ... show_best.py --csv best.csv     另存一份 csv
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import importlib.util
+import json
+import math
+import os
+import re
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+CTRL = HERE.parent
+RUN = Path(os.environ.get("MATFDM_RUN",
+                          os.environ.get("CALIB_REPO_DIR", CTRL.parent)))
+RUNCAL = RUN / "calibration"          # 本次运行的数据根 (代码目录只读)
+STATE = RUNCAL / "state.json"
+METRICS = RUNCAL / "metrics"
+BUILD_P = CTRL.parent / "build_p_decouple.m"
+
+NAMES = ["kCr", "kFe", "kSi", "kspin", "DCr2O3O", "DFe3O4",
+         "DFeCr2O4", "DSiO2", "kRobin", "E_mag"]
+
+
+def load_base() -> dict[str, float]:
+    """从 build_p_decouple.m 里抓十个基线值 (取最后一次数值赋值)。"""
+    if not BUILD_P.exists():
+        return {}
+    text = BUILD_P.read_text(errors="replace")
+    base = {}
+    for name in NAMES:
+        hits = re.findall(rf"p\.{name}\s*=\s*([0-9.eE+-]+)\s*;", text)
+        if hits:
+            base[name] = float(hits[-1])
+    return base
+
+
+def load_pc():
+    sys.path.insert(0, str(CTRL / "vendor"))
+    spec = importlib.util.spec_from_file_location(
+        "propose_cmaes", CTRL / "optimizer" / "propose_cmaes.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def metric_rows(tag: str):
+    path = METRICS / f"{tag}.csv"
+    if not path.exists():
+        return None
+    try:
+        with path.open(newline="") as stream:
+            data = sorted(csv.DictReader(stream), key=lambda r: float(r["dose"]))
+        return data if len(data) == 3 else None
+    except (OSError, ValueError):
+        return None
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--top", type=int, default=10)
+    ap.add_argument("--csv", default="")
+    args = ap.parse_args()
+
+    pc = load_pc()
+    base = load_base()
+    state = json.loads(STATE.read_text())
+
+    recs = []
+    for key, cases in state.items():
+        if not key.endswith("_cases") or not isinstance(cases, list):
+            continue
+        for case in cases:
+            data = metric_rows(case["case_tag"])
+            if data is None:
+                continue
+            try:
+                recs.append((pc.evaluate_case(case), case, data))
+            except Exception:
+                continue
+    if not recs:
+        print("没有可评分的样本")
+        return 1
+    recs.sort(key=lambda t: (0 if t[0]["feasible"] else 1, t[0]["fitness"]))
+    top = recs[:args.top]
+
+    print(f"当前判据: 0.5dpa 软带 [60, {pc.MIDDLE_MAX:g}] nm, "
+          f"端点硬约束 ±{pc.ENDPOINT_BAND:g} nm, "
+          f"可行 {sum(1 for r, _, _ in recs if r['feasible'])}/{len(recs)}\n")
+
+    for rank, (r, case, data) in enumerate(top, 1):
+        front = [float(x["front_nm"]) for x in data]
+        pct = [(float(x["Cr_atom_pct"]), float(x["Fe_atom_pct"]),
+                float(x["Si_atom_pct"])) for x in data]
+        inv = [float(x["Cr_atom_inventory"]) for x in data]
+        print(f"#{rank}  {case['case_tag']}   fitness={r['fitness']:.4f}  "
+              f"feasible={r['feasible']}")
+        print(f"    前沿 nm   : {front[0]:7.2f} {front[1]:7.2f} {front[2]:7.2f}"
+              f"    (靶 40 / 60 / 100)")
+        print(f"    残差 nm   : {front[0]-40:+7.2f} {front[1]-60:+7.2f} {front[2]-100:+7.2f}")
+        for i, dose in enumerate((0, 0.5, 3)):
+            print(f"    {dose:>4} dpa  : Cr {pct[i][0]:5.1f}%  Fe {pct[i][1]:5.1f}%  "
+                  f"Si {pct[i][2]:5.1f}%   Cr库存 {inv[i]:.4g}")
+        print(f"    {'参数':<10s}{'乘子':>10s}{'基线':>12s}{'绝对值':>14s}")
+        mult = case["mult"]
+        vals = {}
+        for name, m in zip(NAMES, mult):
+            b = base.get(name)
+            v = b * m if b is not None else float("nan")
+            vals[name] = v
+            bs = f"{b:.4g}" if b is not None else "?"
+            print(f"    {name:<10s}{m:10.4g}{bs:>12s}{v:14.6g}")
+        if "DCr2O3O" in vals:
+            print(f"    {'DCr2O3':<10s}{'(=DCr2O3O)':>10s}{'':>12s}{vals['DCr2O3O']:14.6g}")
+        if "DSiO2" in vals:
+            print(f"    {'DO0':<10s}{'(=DSiO2)':>10s}{'':>12s}{vals['DSiO2']:14.6g}")
+        print()
+
+    if args.csv:
+        with open(args.csv, "w", newline="") as stream:
+            w = csv.writer(stream)
+            w.writerow(["rank", "case_tag", "fitness", "feasible",
+                        "front0", "front05", "front3"]
+                       + [f"mult_{n}" for n in NAMES]
+                       + [f"val_{n}" for n in NAMES])
+            for rank, (r, case, data) in enumerate(top, 1):
+                front = [float(x["front_nm"]) for x in data]
+                w.writerow([rank, case["case_tag"], r["fitness"], int(r["feasible"])]
+                           + front + list(case["mult"])
+                           + [base.get(n, float('nan')) * m
+                              for n, m in zip(NAMES, case["mult"])])
+        print(f"已另存 {args.csv}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

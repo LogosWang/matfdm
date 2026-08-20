@@ -24,10 +24,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 CTRL = HERE.parent
-RUN = Path(os.environ.get("CALIB_REPO_DIR", CTRL.parent))
-METRICS = RUN / "calibration" / "metrics"
-STATE = CTRL / "state.json"
+RUN = Path(os.environ.get("MATFDM_RUN",
+                          os.environ.get("CALIB_REPO_DIR", CTRL.parent)))
+RUNCAL = RUN / "calibration"          # 本次运行的数据根 (代码目录只读)
+METRICS = RUNCAL / "metrics"
+STATE = RUNCAL / "state.json"
 POPULATION = int(os.environ.get("CALIB_POPULATION", "30"))
+MIDDLE_MAX = float(os.environ.get("CALIB_MIDDLE_MAX", "70"))   # 0.5 dpa 达标上限 nm
 
 
 NEEDED = ("dose", "front_nm", "Cr_atom_inventory",
@@ -73,7 +76,7 @@ def is_success(tag: str, tol: float) -> bool:
     fe = [float(r["Fe_atom_pct"]) for r in data]
     si = [float(r["Si_atom_pct"]) for r in data]
     return (abs(front[0] - 40.0) <= tol
-            and 60.0 <= front[1] <= 75.0
+            and 60.0 <= front[1] <= MIDDLE_MAX
             and abs(front[2] - 100.0) <= tol
             and all(c > max(f, s) for c, f, s in zip(cr, fe, si))
             and cr[2] - fe[2] <= 15.0
@@ -81,6 +84,11 @@ def is_success(tag: str, tol: float) -> bool:
 
 
 def cmd_propose(batch: int) -> int:
+    # 冷启动: propose_cmaes.py 上来就 read_text(state.json), 文件不存在直接崩。
+    # 这里替它建一个空的, 让"第一次跑不需要任何手工准备"成立。
+    if not STATE.exists():
+        STATE.parent.mkdir(parents=True, exist_ok=True)
+        STATE.write_text("{}\n")
     env = os.environ.copy()
     env.update({"CALIB_REPO_DIR": str(RUN),
                 "CALIB_BATCH_NO": str(batch),
@@ -147,6 +155,85 @@ def cmd_penalize(tag: str) -> int:
     return 0
 
 
+def cmd_rank(top: int) -> int:
+    """用当前目标函数给全部历史样本重新评分排名。
+
+    不读 fitness_history.csv —— 那是上一次 propose 时的快照, 改了目标函数之后
+    要等下一次 propose 才刷新。这里直接调 propose_cmaes 现算, 所见即当前标尺。
+    """
+    import importlib.util
+    import math
+    sys.path.insert(0, str(CTRL / "vendor"))
+    spec = importlib.util.spec_from_file_location(
+        "propose_cmaes", CTRL / "optimizer" / "propose_cmaes.py")
+    pc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pc)
+
+    import json
+    state = json.loads(STATE.read_text())
+    recs = []
+    for key, cases in state.items():
+        if not key.endswith("_cases") or not isinstance(cases, list):
+            continue
+        for case in cases:
+            data = rows(case["case_tag"])
+            if data is None:
+                continue
+            try:
+                recs.append((pc.evaluate_case(case), data))
+            except Exception:
+                continue
+    if not recs:
+        print("没有可评分的样本")
+        return 0
+    recs.sort(key=lambda t: (0 if t[0]["feasible"] else 1, t[0]["fitness"]))
+
+    print(f"{'#':>3s} {'case':18s}{'fitness':>11s} {'可行':>5s}   "
+          f"front 0 / 0.5 / 3 dpa     Cr/Fe/Si% @3dpa")
+    print(f"{'':3s} {'--- 目标 ---':18s}{'':11s} {'':5s}    40.0  60.0  100.0")
+    for i, (r, data) in enumerate(recs[:top], 1):
+        f = [float(x["front_nm"]) for x in data]
+        last = data[2]
+        print(f"{i:3d} {r['case_tag']:18s}{r['fitness']:11.3f} {str(r['feasible']):>5s}   "
+              f"{f[0]:5.1f} {f[1]:5.1f} {f[2]:6.1f}     "
+              f"{float(last['Cr_atom_pct']):4.1f}/{float(last['Fe_atom_pct']):4.1f}/"
+              f"{float(last['Si_atom_pct']):4.1f}")
+    nfeas = sum(1 for r, _ in recs if r["feasible"])
+    print(f"\n可行 {nfeas}/{len(recs)}   "
+          f"(0.5dpa 上限 {MIDDLE_MAX:g} nm, 端点硬约束 ±{getattr(pc,'ENDPOINT_BAND',float('nan')):g} nm)")
+    best = recs[0][0]
+    names = ["kCr", "kFe", "kSi", "kspin", "DCr2O3O", "DFe3O4",
+             "DFeCr2O4", "DSiO2", "kRobin", "E_mag"]
+    print("最优乘子: " + "  ".join(f"{n}={math.exp(x):.4g}"
+                                   for n, x in zip(names, best["x"])))
+    return 0
+
+
+def cmd_validate_done(tol: float) -> int:
+    """作业启动时复核 DONE 标记。
+
+    命中判据会被收紧 (比如 0.5 dpa 上限 75 -> 70)。旧的 DONE 不复核的话会
+    永久挡住后面每一个作业, 而且退出码是 0, 不看日志发现不了。
+    这里按当前判据重判: 仍达标则保留并让作业退出; 已不达标则改名归档、继续跑。
+    """
+    done = RUNCAL / "DONE"
+    if not done.exists():
+        print("NO_DONE")
+        return 0
+    tags = [t.strip() for t in done.read_text().replace("\n", ",").split(",") if t.strip()]
+    still = [t for t in tags if is_success(t, tol)]
+    if still:
+        print("DONE_VALID=" + ",".join(still))
+        return 0
+    from datetime import datetime
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archived = RUNCAL / f"DONE.stale.{stamp}"
+    done.rename(archived)
+    print(f"DONE_STALE_CLEARED tags={','.join(tags)} "
+          f"(按当前判据已不达标, 归档为 {archived.name}, 继续优化)")
+    return 0
+
+
 def cmd_penalize_missing(batch: int) -> int:
     n = 0
     for tag in case_tags(batch):
@@ -162,8 +249,8 @@ def cmd_history(batch: int) -> int:
     import json
     names = ["kCr", "kFe", "kSi", "kspin", "DCr2O3O", "DFe3O4",
              "DFeCr2O4", "DSiO2", "kRobin", "E_mag"]
-    diag_path = CTRL / "optimizer" / "cma_generation.json"
-    pickle_path = CTRL / "optimizer" / "cma_state.pkl"
+    diag_path = RUNCAL / "optimizer" / "cma_generation.json"
+    pickle_path = RUNCAL / "optimizer" / "cma_state.pkl"
     print(f"RESUME batch={batch} "
           f"cma_state={'present' if pickle_path.exists() else 'ABSENT(将由历史指标重建)'}")
     if diag_path.exists():
@@ -178,7 +265,7 @@ def cmd_history(batch: int) -> int:
             print(f"  best: tag={best.get('case_tag')} feasible={best.get('feasible')} "
                   f"objective={best.get('objective'):.4g}")
             print("  best multipliers: " + "  ".join(mult))
-    hist = CTRL / "optimizer" / "fitness_history.csv"
+    hist = RUNCAL / "optimizer" / "fitness_history.csv"
     if hist.exists():
         with hist.open(newline="") as stream:
             data = list(csv.DictReader(stream))
@@ -204,11 +291,12 @@ def np_exp(x):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=("propose", "success", "report",
-                                        "penalize", "penalize-missing", "history"))
-    ap.add_argument("batch", type=int)
+    ap.add_argument("command", choices=("propose", "success", "report", "penalize",
+                                        "penalize-missing", "history", "validate-done", "rank"))
+    ap.add_argument("batch", type=int, nargs="?", default=0)
     ap.add_argument("--tol", type=float, default=3.0)
     ap.add_argument("--tag", default="")
+    ap.add_argument("--top", type=int, default=15)
     args = ap.parse_args()
     if args.command == "propose":
         return cmd_propose(args.batch)
@@ -220,6 +308,10 @@ def main() -> int:
         return cmd_penalize(args.tag)
     if args.command == "penalize-missing":
         return cmd_penalize_missing(args.batch)
+    if args.command == "validate-done":
+        return cmd_validate_done(args.tol)
+    if args.command == "rank":
+        return cmd_rank(args.top)
     if args.command == "history":
         return cmd_history(args.batch)
     return cmd_report(args.batch)

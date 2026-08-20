@@ -1,36 +1,59 @@
 function run_calibration_case(case_tag, dose, mult)
-% Run one isolated decoupled calibration leg.
-% mult order: [kCr kFe kSi kspin DCr2O3O DFe3O4 DFeCr2O4 DSiO2 kRobin E_mag].
+% 跑一条隔离的解耦标定腿。
+% mult 顺序: [kCr kFe kSi kspin DCr2O3O DFe3O4 DFeCr2O4 DSiO2 kRobin E_mag]
+%
+% 数据全部写进 run_root() (= $MATFDM_RUN), 代码目录只读。
+% 配置来自 <run>/config.json, 其中 overrides 字段在 build_p_decouple 之后
+% 逐字段覆盖到 p —— 改物理参数不需要动源码。
 arguments
     case_tag (1,1) string
     dose (1,1) double
     mult (1,10) double = ones(1,10)
 end
 
-repo = fileparts(mfilename('fullpath'));
-root = fullfile(repo, 'decouple', char(case_tag), sprintf('dose%g', dose));
-stamp = fullfile(root, 'params.txt');
-want  = sprintf('%.17g\n', mult);          % 参数指纹, 精确到二进制可复现
+root_run = run_root();
+cfg  = read_run_config();
+root = fullfile(root_run, 'decouple', char(case_tag), sprintf('dose%g', dose));
 
-% ---- 参数指纹校验: 同名 case 换了参数, 必须清掉旧结果与旧 checkpoint ----
-% 触发场景: cma_state.pkl 丢失后 CMA 重新 ask, 同名 case 拿到不同乘子。
-% 不校验的话, 旧参数算出的结果/半路 checkpoint 会被当成新参数的结果, 污染 fitness。
-if isfile(stamp)
-    got = fileread(stamp);
-    if ~strcmp(strtrim(got), strtrim(want))
-        ckptdir = fullfile(repo, 'checkpoint', char(case_tag), ...
-                           sprintf('decouple_dose%g', dose));
-        fprintf('[stale] %s dose=%g 参数指纹不符, 清除旧结果与 checkpoint 后重算\n', ...
-                case_tag, dose);
-        stale = fullfile(repo, 'decouple', char(case_tag), ...
-                         sprintf('dose%g_stale_%s', dose, datestr(now,'yyyymmdd_HHMMSS')));
-        try, movefile(root, stale, 'f'); catch, rmdir(root,'s'); end
-        if exist(ckptdir,'dir'), rmdir(ckptdir,'s'); end
+p = build_p_decouple(dose);
+
+% ---- config.json 的 overrides: 唯一的物理参数改动入口 ----
+ov = cfg.overrides;
+if ~isempty(ov) && isstruct(ov)
+    fn = fieldnames(ov);
+    for i = 1:numel(fn)
+        p.(fn{i}) = ov.(fn{i});
     end
 end
+p.rundir   = root_run;
+p.keep_traj = logical(cfg.keep_traj);
 
-% ---- 幂等守卫: 参数一致且真正跑完 (含 _COMPLETE 标记) 则跳过 ----
-if isfile(stamp) && leg_is_complete(repo, case_tag, dose)
+base = [p.kCr p.kFe p.kSi p.kspin p.DCr2O3O p.DFe3O4 ...
+        p.DFeCr2O4 p.DSiO2 p.kRobin p.E_mag];
+
+% ---- 参数指纹 = 乘子 + 基线 + 影响物理的全部标量 ----
+% 任何一处变动(基线值、级联效率、化学计量、网格、时长、覆盖项)都会让旧腿
+% 自动作废重算, 不会出现"改了物理但旧结果被当成新结果"的静默污染。
+extra = [getdef(p,'eff',1), getdef(p,'rOM',1), getdef(p,'slab',1), getdef(p,'DO0',NaN), ...
+         getdef(p,'dose_rate',NaN), getdef(p,'irr_time',NaN), getdef(p,'oxi_time',NaN), ...
+         getdef(p,'nx',NaN), getdef(p,'ny',NaN), getdef(p,'num_ckpt',NaN), ...
+         getdef(p,'Ks',NaN), getdef(p,'recomb_rate',NaN), getdef(p,'Dgb',NaN), ...
+         getdef(p,'FeCr2O4mass',NaN), getdef(p,'FeCr2O4den',NaN), ...
+         getdef(p,'E_Cr',NaN), getdef(p,'E_Si',NaN), getdef(p,'E_spin',NaN), ...
+         getdef(p,'f0V',NaN), getdef(p,'f0I',NaN)];
+want  = sprintf('%.17g\n', [mult(:); base(:); extra(:)]);
+stamp = fullfile(root, 'params.txt');
+
+if isfile(stamp) && ~strcmp(strtrim(fileread(stamp)), strtrim(want))
+    ckptdir = fullfile(root_run, 'checkpoint', char(case_tag), sprintf('decouple_dose%g', dose));
+    fprintf('[stale] %s dose=%g 参数指纹不符, 归档旧结果与 checkpoint 后重算\n', case_tag, dose);
+    stale = fullfile(root_run, 'decouple', char(case_tag), ...
+                     sprintf('dose%g_stale_%s', dose, datestr(now,'yyyymmdd_HHMMSS')));
+    try, movefile(root, stale, 'f'); catch, rmdir(root,'s'); end
+    if exist(ckptdir,'dir'), rmdir(ckptdir,'s'); end
+end
+
+if isfile(stamp) && leg_is_complete(root_run, case_tag, dose)
     fprintf('[skip] %s dose=%g 已完成\n', case_tag, dose);
     return
 end
@@ -38,19 +61,20 @@ end
 if ~exist(root,'dir'), mkdir(root); end
 fid = fopen(stamp, 'w');  fprintf(fid, '%s', want);  fclose(fid);
 
-p = build_p_decouple(dose);
-base = [p.kCr p.kFe p.kSi p.kspin p.DCr2O3O p.DFe3O4 ...
-        p.DFeCr2O4 p.DSiO2 p.kRobin p.E_mag];
 vals = base .* mult;
 p.kCr = vals(1); p.kFe = vals(2); p.kSi = vals(3); p.kspin = vals(4);
 p.DCr2O3O = vals(5); p.DCr2O3 = p.DCr2O3O;
 p.DFe3O4 = vals(6); p.DFeCr2O4 = vals(7); p.DSiO2 = vals(8);
+p.DO0 = p.DSiO2;   % O 通道基底 = 非晶 SiO2 (随 mult(8) 一起被 CMA 调)
 p.kRobin = vals(9); p.E_mag = vals(10); p.case_tag = case_tag;
 
-fprintf('[case] %s dose=%g\n', case_tag, dose);
-fprintf('[base] kCr=%.9g kFe=%.9g kSi=%.9g kspin=%.9g ', base(1:4));
-fprintf('DCr2O3O=%.9g DFe3O4=%.9g DFeCr2O4=%.9g DSiO2=%.9g kRobin=%.9g E_mag=%.9g\n', base(5:10));
+fprintf('[case] %s dose=%g  run=%s  eff=%g rOM=%g front_thick=%g\n', ...
+        case_tag, dose, cfg.run_id, getdef(p,'eff',1), getdef(p,'rOM',1), cfg.front_thick);
 fprintf('[params] kCr=%.9g kFe=%.9g kSi=%.9g kspin=%.9g ', vals(1:4));
 fprintf('DCr2O3O=%.9g DFe3O4=%.9g DFeCr2O4=%.9g DSiO2=%.9g kRobin=%.9g E_mag=%.9g\n', vals(5:10));
 run_ckpt_decouple(p);
+end
+
+function v = getdef(p, name, default)
+if isfield(p, name), v = double(p.(name)); else, v = default; end
 end

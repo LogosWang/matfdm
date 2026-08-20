@@ -37,6 +37,13 @@ LOWER = np.full(10, math.log(0.03))
 UPPER = np.full(10, math.log(60.0))
 DOMAIN_WIDTH = UPPER - LOWER
 POPULATION = int(os.environ.get("CALIB_POPULATION", "10"))
+# 多链并行: 每条链给不同 CALIB_SEED, 否则各链的 ask 序列完全相同, 等于白跑
+SEED = int(os.environ.get("CALIB_SEED", "20260804"))
+# 0.5 dpa 前沿软带上限 (nm): 带内 [60, MIDDLE_MAX] 视为达标
+MIDDLE_MAX = float(os.environ.get("CALIB_MIDDLE_MAX", "70"))
+# 端点(0 与 3 dpa)容差 (nm): 超出即判不可行 —— 端点是硬约束, 优先级高于一切,
+# 任何端点超差的样本都排在全部端点达标样本之后, 中间腿再好也换不来名次。
+ENDPOINT_BAND = float(os.environ.get("CALIB_ENDPOINT_BAND", "5"))
 CONSTRAINT_PENALTY = 1.0e4
 FORMAT_VERSION = 1
 
@@ -83,12 +90,17 @@ def residual_and_constraints(tag: str):
         raise ValueError(f"{tag}: expected three metric rows")
     raw = np.array([float(row["residual_nm"]) for row in rows])
     middle = 60.0 + raw[1]
+    # 0.5 dpa: 最小值在 60, 全程有梯度, 分段连续。
+    #   带内 [60, MIDDLE_MAX] 斜率 1/6 —— 端点是 1/3, 取一半:
+    #     既保证进带之后仍持续朝 60 推进 (旧的 1/30 只有端点的十分之一,
+    #     CMA 会拿中间腿去换端点上的零点几纳米), 又不至于压倒两个端点。
+    #   带外斜率 1/3 (与端点同量级), 在 MIDDLE_MAX 处连续。
     if middle < 60.0:
-        middle_residual = raw[1] / 5.0
-    elif middle <= 75.0:
-        middle_residual = raw[1] / 30.0
+        middle_residual = (60.0 - middle) / 5.0
+    elif middle <= MIDDLE_MAX:
+        middle_residual = (middle - 60.0) / 6.0
     else:
-        middle_residual = 0.3 + (middle - 75.0) / 5.0
+        middle_residual = (MIDDLE_MAX - 60.0) / 6.0 + (middle - MIDDLE_MAX) / 4.0
     front = [raw[0] / 3.0, middle_residual, raw[2] / 3.0]
 
     cr = np.array([float(row["Cr_atom_pct"]) for row in rows])
@@ -116,10 +128,16 @@ def residual_and_constraints(tag: str):
         constraints.extend(((fe_i - cr_i) / 100.0 + eps,
                             (si_i - cr_i) / 100.0 + eps))
     constraints.append((cr[2] - fe[2] - 15.0) / 100.0 + eps)
+    # 端点硬约束: |front - target| <= ENDPOINT_BAND。放进 constraints 即进入
+    # lexicographic 分层 —— 端点超差的样本永远排在端点达标的样本之后。
+    constraints.append((abs(raw[0]) - ENDPOINT_BAND) / ENDPOINT_BAND)
+    constraints.append((abs(raw[2]) - ENDPOINT_BAND) / ENDPOINT_BAND)
     constraints = np.asarray(constraints)
     feasible = bool(inventory[0] > inventory[1] > inventory[2]
                     and np.all(cr > fe) and np.all(cr > si)
-                    and cr[2] - fe[2] <= 15.0)
+                    and cr[2] - fe[2] <= 15.0
+                    and abs(raw[0]) <= ENDPOINT_BAND
+                    and abs(raw[2]) <= ENDPOINT_BAND)
     return residual, constraints, feasible
 
 
@@ -254,7 +272,7 @@ def maybe_restart(payload: dict) -> dict:
         mean = deterministic_global_center(restart)
         center_kind = "global_deterministic"
     sigma = min(2.4, 0.75 * 1.45 ** restart)
-    payload["es"] = new_es(mean, sigma, 20260804 + 1009 * restart)
+    payload["es"] = new_es(mean, sigma, SEED + 1009 * restart)
     payload["restart_count"] = restart
     payload["last_restart"] = {"reason": reason, "center": center_kind,
                                "sigma": sigma}
@@ -383,7 +401,7 @@ def main() -> None:
     else:
         payload = {
             "format_version": FORMAT_VERSION,
-            "es": new_es(np.zeros(10), 0.65, 20260804),
+            "es": new_es(np.zeros(10), 0.65, SEED),
             "told_batches": [],
             "pending_batch": None,
             "pending_x": None,
