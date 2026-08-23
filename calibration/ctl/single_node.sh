@@ -17,8 +17,8 @@
 #                其中的 config.json 是唯一配置源
 #
 # 不要直接 sbatch 本文件, 用管理器:
-#   bash calibration/ctl/matfdm.sh new ft05 front_thick=0.5
-#   bash calibration/ctl/matfdm.sh submit ft05 4
+#   bash calibration/ctl/matfdm.sh new ft5e-1 front_thick=0.5
+#   bash calibration/ctl/matfdm.sh submit ft5e-1 4
 # (直接 sbatch 也能跑, 那时 MATFDM_RUN 缺省回退到代码目录, 等于旧行为)
 
 set -euo pipefail

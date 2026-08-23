@@ -25,7 +25,7 @@ RUNS=$SCRATCH/matfdm_runs     # 数据根
 
 SWEEP_KEY=front_thick         # 要扫的字段
 SWEEP_VALUES="0.05 0.1 ... 1.5"   # 每个值一个运行, 一个运行占一个节点
-PREFIX=ft                     # 目录名前缀 -> ft005, ft01, ...
+PREFIX=ft                     # 目录名前缀 -> ft1e-1, ft5e-1, ft1e0 ...
 
 POPULATION=40                 # 每代 case 数
 WORKERS=120                   # parpool worker 数 (= POPULATION × 剂量数)
@@ -48,6 +48,53 @@ LIC_HOLD=420                  # 令牌最长持有 s, 超时视为节点已死�
 
 **节点数 = `SWEEP_VALUES` 的个数**,`JOB.sh` 自动算,不用手填 `-N`。
 30 个值 → 每个作业 30 节点;`NJOBS=4` → 4 × 18 h = 最多 72 h 连续算。
+
+### 运行目录怎么命名:统一科学计数法
+
+扫描值一律编成 **`<尾数>e<指数>`**(尾数归一到 `[1,10)` 去尾随零,指数是带符号整数):
+
+| 写法 | 规范值 | 目录 |
+|---|---|---|
+| `0.1` / `0.10` / `.1` / `1e-1` | `1e-1` | `ft1e-1` |
+| `0.2` | `2e-1` | `ft2e-1` |
+| `0.05` | `5e-2` | `ft5e-2` |
+| `0.125` | `1.25e-1` | `ft1.25e-1` |
+| `1.0` / `1.00` / `1` | `1e0` | `ft1e0` |
+| `1.5` | `1.5e0` | `ft1.5e0` |
+| `10` | `1e1` | `ft1e1` |
+| `15` | `1.5e1` | `ft1.5e1` |
+| `1e-4` / `0.0001` | `1e-4` | `ft1e-4` |
+
+这是个**双射**:值 → 名字唯一,名字 → 值也唯一(名字去掉前缀就是一个合法的十进制
+字面量)。所以**永远不会撞名**,小数位数想加多少加多少,同一个值不管怎么写都落进同
+一个目录。
+
+```bash
+mf runid ft --key front_thick 0.05 0.125 1.0 10   # 只算名字, 不建目录
+# ft5e-2 5e-2 / ft1.25e-1 1.25e-1 / ft1e0 1e0 / ft1e1 1e1
+mf runid ft --decode ft1.25e-1                    # 反解: 0.125
+```
+
+老做法是直接删掉小数点(`tr -d '.'`),三个坑,已全部作废:
+
+- `1.0` 和 `10` 都得 `ft10`、`1.5` 和 `15` 都得 `ft15` —— 两条链写进同一个目录,
+  CMA 状态和 metrics 混在一起,两条都废,而且全程没有任何报错;
+- `0.1` 写成 `0.10` 会另开一个 `ft010`,把已经算了几百次评估的 `ft01` 孤立掉;
+- 位数一混,目录名的字典序和数值大小完全对不上。
+
+**已有目录已经迁移过了**(`ft01`→`ft1e-1` … `ft10`→`ft1e0`,数据原样保留)。
+以后若还有老名字的目录:
+
+```bash
+mf migrate 'ft*'              # 先看计划 (dry-run)
+mf migrate 'ft*' --apply      # 真改: 目录改名 + config.json/provenance 的 run_id 跟着改
+                              #       + 清单重写 + 老的后处理 txt 作废
+```
+
+结果、断点、CMA 状态里都不含运行名或运行目录路径,所以改名不影响续算。
+
+> 整数扫描(比如 `seed`)也走同一套规则,`101` → `seed1.01e2`。统一是有代价的,
+> 但换来的是永不撞名;想要好看的名字就自己 `mf new <id> seed=101` 显式指定。
 
 ### 常见几种扫描
 
@@ -103,7 +150,7 @@ NERSC 的 MATLAB / Parallel Computing Toolbox license 是**全校共享**的,10 
 退避带随机抖动(equal jitter),否则 N 个节点会永远在同一秒一起重试,等于没退避。
 
 ```bash
-grep -c '^--- 第 ' $SCRATCH/matfdm_runs/ft05/node-*.log     # 这个节点抢了几次
+grep -c '^--- 第 ' $SCRATCH/matfdm_runs/ft5e-1/node-*.log     # 这个节点抢了几次
 grep 'license 到手' $SCRATCH/matfdm_runs/ft*/node-*.log      # 谁抢到了, 花了多久
 ls $SCRATCH/matfdm_runs/.lic_seats                          # 当前谁占着入闸令牌
 ```
@@ -122,16 +169,16 @@ alias mf='bash $SCRATCH/projects/matfdm/calibration/ctl/matfdm.sh'
 | 目的 | 命令 |
 |---|---|
 | 全部运行总览 | `mf status` |
-| 某运行的 CMA 状态 | `mf status ft05` |
-| 前十名 + 参数绝对值 | `mf best ft05 10` |
+| 某运行的 CMA 状态 | `mf status ft5e-1` |
+| 前十名 + 参数绝对值 | `mf best ft5e-1 10` |
 | **每个运行各导一份前十名 txt** | `mf export 'ft*' 10` |
-| 某节点抢了几次 license | `grep -c '^--- 第 ' $SCRATCH/matfdm_runs/ft05/node-*.log` |
+| 某节点抢了几次 license | `grep -c '^--- 第 ' $SCRATCH/matfdm_runs/ft5e-1/node-*.log` |
 | 队列 | `squeue --me -o "%.10i %.12j %.6D %.8T %.9M %.20R"` |
 | 多节点作业总日志 | `tail -f $SCRATCH/matfdm_runs/mn_ft-*.out` |
-| 某节点日志 | `tail -f $SCRATCH/matfdm_runs/ft05/node-*.log` |
-| 某条腿跑到第几窗 | `tail -3 $SCRATCH/matfdm_runs/ft05/calibration/logs/b12_c07_cma_dose3.log` |
-| 某 case 三行指标 | `column -s, -t $SCRATCH/matfdm_runs/ft05/calibration/metrics/b12_c07_cma.csv` |
-| 排名(现算, 不读快照) | `MATFDM_RUN=$SCRATCH/matfdm_runs/ft05 python3 $MATFDM_CODE/calibration/ctl/gen_tool.py rank --top 20` |
+| 某节点日志 | `tail -f $SCRATCH/matfdm_runs/ft5e-1/node-*.log` |
+| 某条腿跑到第几窗 | `tail -3 $SCRATCH/matfdm_runs/ft5e-1/calibration/logs/b12_c07_cma_dose3.log` |
+| 某 case 三行指标 | `column -s, -t $SCRATCH/matfdm_runs/ft5e-1/calibration/metrics/b12_c07_cma.csv` |
+| 排名(现算, 不读快照) | `MATFDM_RUN=$SCRATCH/matfdm_runs/ft5e-1 python3 $MATFDM_CODE/calibration/ctl/gen_tool.py rank --top 20` |
 | 某一代逐 case | `MATFDM_RUN=… python3 …/gen_tool.py report 12` |
 | 节点内存/进程 | `ssh <node> 'pgrep -c -u $USER -f MATLAB; free -g\|sed -n 2p'` (应 121 进程) |
 
@@ -144,7 +191,7 @@ alias mf='bash $SCRATCH/projects/matfdm/calibration/ctl/matfdm.sh'
 ## 三、后处理:每个 ft 的前十名导成 txt
 
 ```bash
-mf export                       # 全部 ft*, 前十名 -> $SCRATCH/matfdm_runs/postprocess/ft01.txt ...
+mf export                       # 全部 ft*, 前十名 -> $SCRATCH/matfdm_runs/postprocess/ft1e-1.txt ...
 mf export 'ft*' 20              # 前二十名
 mf export 'eff*' 10 ~/out       # 换扫描前缀 / 换输出目录
 ```
@@ -164,7 +211,7 @@ MATFDM_RUNS=$SCRATCH/matfdm_runs \
 | `--out` | `<数据根>/postprocess` | 输出目录 |
 | `--csv` | 关 | 顺带导一份同名 `.csv` |
 
-每个运行一个文件,**文件名 = 运行目录名**(`ft01.txt`、`ft02.txt`…)。正文格式与
+每个运行一个文件,**文件名 = 运行目录名**(`ft1e-1.txt`、`ft2e-1.txt`…)。正文格式与
 `mf best` / `show_best.py` 完全一致 —— 脚本是逐个运行去调 `show_best.py`,不是
 把排版逻辑另抄一遍,所以将来改 `show_best.py` 的输出这里自动跟着变。文件头另加
 一段运行信息(目录、导出时间、已评估数、config、命中标记)。
@@ -176,20 +223,27 @@ MATFDM_RUNS=$SCRATCH/matfdm_runs \
 终端同时打印一张总表,一眼看出哪个 `front_thick` 最有戏:
 
 ```
-运行             评估     可行      最佳 fitness  文件
-ft01          560  0/560    1014165.3390  ft01.txt
-ft04          800  0/800    1077050.3453  ft04.txt
-ft08            0      -               -  ft08.txt      <- 一代都没跑完
+扫描   : front_thick
+
+运行        front_thick     评估     可行      最佳 fitness  文件
+ft1e-1           0.1    560  0/560    1014165.3390  ft1e-1.txt
+ft4e-1           0.4    800  0/800    1077050.3453  ft4e-1.txt
+ft8e-1           0.8      0      -               -  ft8e-1.txt  <- 一代都没跑完
 ```
+
+**排序按扫描值的数值,不是目录名的字典序** —— 位数一混字典序就乱:
+字典序里 `ft1e0`(=1)排在 `ft2e-1`(=0.2)前面,和 `front_thick` 的大小顺序对不上。
+扫描字段自动认出来(一组运行里取值不全相同的那个数值字段);认不出来就退回按名字
+自然排序。
 
 ---
 
 ## 四、停 / 续 / 清
 
 ```bash
-mf stop ft05                          # 该运行的节点空转退出
-mf resume ft05
-mf clean ft05                         # 清数据, 保留 config.json
+mf stop ft5e-1                          # 该运行的节点空转退出
+mf resume ft5e-1
+mf clean ft5e-1                         # 清数据, 保留 config.json
 touch $SCRATCH/matfdm_runs/ft*/calibration/STOP     # 全停
 squeue --me -h -o "%i %j" | awk '$2 ~ /^mn_ft/ {print $1}' | xargs -r scancel
 ```
@@ -201,15 +255,15 @@ squeue --me -h -o "%i %j" | awk '$2 ~ /^mn_ft/ {print $1}' | xargs -r scancel
 改 `config.json` **不需要动代码**,下一个作业自动生效;涉及物理的改动会通过参数指纹让旧腿自动作废重算。
 
 ```bash
-vi $SCRATCH/matfdm_runs/ft05/config.json
-mf new ft05 front_thick=0.75          # 或增量改 (幂等, 保留其他字段)
+vi $SCRATCH/matfdm_runs/ft5e-1/config.json
+mf new ft5e-1 front_thick=0.75          # 或增量改 (幂等, 保留其他字段)
 ```
 
 改目标函数(全局):
 
 ```bash
 python3 $MATFDM_CODE/calibration/ctl/patch_objective.py            # 幂等
-MATFDM_RUN=$SCRATCH/matfdm_runs/ft05 CALIB_POPULATION=40 \
+MATFDM_RUN=$SCRATCH/matfdm_runs/ft5e-1 CALIB_POPULATION=40 \
   python3 $MATFDM_CODE/calibration/ctl/rescore_best.py             # 每个运行各跑一次
 ```
 
@@ -254,6 +308,8 @@ matfdm/                                  <id>/
     │   ├── gen_tool.py        代级助手
     │   ├── show_best.py       排名+参数
     │   ├── export_best.py     逐运行导前 N 名 txt
+    │   ├── run_id.py          扫描值 <-> 运行名 (科学计数法)
+    │   ├── migrate_run_ids.py 老命名目录一次性迁移
     │   ├── lic_seat.sh        license 席位抢占
     │   ├── rescore_best.py    换标尺后重算
     │   └── patch_objective.py 目标函数补丁
@@ -264,7 +320,7 @@ matfdm/                                  <id>/
 数据根还有两个跨运行的东西:
 $SCRATCH/matfdm_runs/
 ├── .lic_seats/         license 入闸令牌池 (跨节点共享, 自动清理)
-└── postprocess/        mf export 导出的 ft01.txt / ft02.txt / ...
+└── postprocess/        mf export 导出的 ft1e-1.txt / ft2e-1.txt / ...
 ```
 
 **隔离**:`MATFDM_RUN` 指到哪数据写到哪;代码目录永远只读,多个运行/节点互不可见。
@@ -287,6 +343,9 @@ $SCRATCH/matfdm_runs/
 | `Maximum number of users for MATLAB reached` | 正常,全校共享 license。节点会自动退避重试,**不会**再秒退;日志里看 `--- license 没抢到 (第 N 次)` |
 | 作业几分钟就"跑完"、接力链被烧光 | 老版本的行为。确认 `node_task.sh` 里有 `lic_run_matlab`,且 `mn_*.out` 里打印了 `deadline:` 与 `license :` 两行 |
 | 全程一代没跑完(评估 0) | 该节点整个作业都没抢到席位。调小 `LIC_SEATS`、调大 `WALLTIME`,或错峰提交 |
+| 两个扫描值跑进同一个目录 | 老命名规则的锅。科学计数法是双射,不可能再撞;`mf runid <前缀> --key <字段> <值...>` 可先看一眼名字 |
+| 还有 `ft01` 这种老名字的目录 | `mf migrate 'ft*'` 看计划,`--apply` 执行;数据原样保留 |
+| 目录名看不出对应哪个值 | `mf runid <前缀> --decode <目录名>` 反解 |
 | `mf best` 说"没有可评分的样本" | 该运行还没有 `state.json`(一代都没完);有 `state.json` 还这样就是 `CALIB_REPO_DIR` 没指到运行目录 |
 | 某腿反复失败 | 3 次后熔断,不卡整代;错误在 `<run>/calibration/logs/<tag>_dose<d>_error.log` |
 | 内存吃紧 | 单腿约 1.8 GB;`workers` × 1.8 GB 必须 < 400 GB |

@@ -3,6 +3,8 @@
 #
 #   new    <id> [key=val ...]           建运行目录并写 config.json
 #   sweep  <key> "<v1 v2 ...>" [前缀]   批量建一组运行 (每个值一个)
+#   runid  <前缀> [--key <字段>] <值...>  只算运行名并查重, 不建目录
+#   migrate [模式] [--apply]            老命名的目录改成科学计数法 (一次性)
 #   launch <清单> [作业数] [墙钟]        一个作业占 N 节点, 每节点跑清单里的一个运行
 #   submit <id> [作业数]                单节点模式: 只跑一个运行
 #   list   [模式]                       列出运行目录 / 生成清单
@@ -67,12 +69,27 @@ PYEOF
 }
 
 # ---------------------------------------------------------------- sweep
+# 运行名由 run_id.py 统一生成: 科学计数法, 0.1 -> ft1e-1, 1.0 -> ft1e0, 10 -> ft1e1。
+# 不能直接 tr -d '.' —— 那样 1.0 和 10 都得 ft10, 两条链写进同一个目录全废;
+# 0.1 写成 0.10 又会另开一个 ft010, 把已算的 ft01 孤立掉。
 cmd_sweep() {
   local key=${1:?"用法: sweep <key> \"v1 v2 ...\" [前缀]"}
   local values=${2:?}; local prefix=${3:-$(echo "$key" | tr '.' '_')}
-  for v in $values; do
-    cmd_new "${prefix}$(echo "$v" | tr -d '.')" "$key=$v"
-  done
+  local ids
+  ids=$(py "$CODE/calibration/ctl/run_id.py" --prefix "$prefix" \
+           --runs "$RUNS" --key "$key" $values) || exit 1
+  while read -r id v; do
+    [[ -n "$id" ]] && cmd_new "$id" "$key=$v"
+  done <<< "$ids"
+}
+
+# 只算运行名, 不建目录 (JOB.sh 用; 顺带做撞名与历史数据一致性检查)
+cmd_runid() {
+  local prefix=${1:?"用法: runid <前缀> [--key <扫描字段>] <值...>"}; shift
+  local key=""
+  if [[ "${1:-}" == "--key" ]]; then key=$2; shift 2; fi
+  py "$CODE/calibration/ctl/run_id.py" --prefix "$prefix" \
+     ${key:+--runs "$RUNS" --key "$key"} "$@"
 }
 
 # ----------------------------------------------------------------- list
@@ -166,6 +183,10 @@ PYEOF
 cmd_export() { local pat=${1:-'ft*'}; local n=${2:-10}; local out=${3:-}
   MATFDM_RUNS="$RUNS" py "$CODE/calibration/ctl/export_best.py" \
       --pattern "$pat" --top "$n" ${out:+--out "$out"}; }
+# 老命名 (ft01/ft10) 的目录一次性改成科学计数法 (ft1e-1/ft1e0); 默认只看不动
+cmd_migrate() { local pat=${1:-'ft*'}; shift || true
+  MATFDM_RUNS="$RUNS" py "$CODE/calibration/ctl/migrate_run_ids.py" \
+      --pattern "$pat" "$@"; }
 cmd_stop()   { touch "$RUNS/${1:?}/calibration/STOP"; echo "已停 $1"; }
 cmd_resume() { rm -f "$RUNS/${1:?}/calibration/STOP"; echo "已解除 $1"; }
 cmd_clean()  { local d="$RUNS/${1:?}"
@@ -177,6 +198,8 @@ cmd_clean()  { local d="$RUNS/${1:?}"
 case "${1:-}" in
   new)    shift; cmd_new    "$@" ;;
   sweep)  shift; cmd_sweep  "$@" ;;
+  runid)  shift; cmd_runid  "$@" ;;
+  migrate) shift; cmd_migrate "$@" ;;
   list)   shift; cmd_list   "$@" ;;
   launch) shift; cmd_launch "$@" ;;
   submit) shift; cmd_submit "$@" ;;
@@ -186,5 +209,5 @@ case "${1:-}" in
   stop)   shift; cmd_stop   "$@" ;;
   resume) shift; cmd_resume "$@" ;;
   clean)  shift; cmd_clean  "$@" ;;
-  *) sed -n '2,25p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,27p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

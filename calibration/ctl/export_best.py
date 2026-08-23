@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""把每个运行的前 N 名导成 txt, 一个运行一个文件 (ft01.txt, ft02.txt, ...)。
+"""把每个运行的前 N 名导成 txt, 一个运行一个文件 (ft1e-1.txt, ft2e-1.txt, ...)。
 
 格式与 show_best.py 完全一致 —— 本脚本就是逐个运行去调它, 而不是把排版逻辑
 再抄一遍, 所以将来改 show_best.py 的输出, 这里自动跟着变。
@@ -32,6 +32,9 @@ HERE = Path(__file__).resolve().parent
 CODE = HERE.parent.parent                       # 仓库根 (代码, 只读)
 SHOW_BEST = HERE / "show_best.py"
 
+sys.path.insert(0, str(HERE))
+import run_id as R                              # noqa: E402  命名/排序的唯一权威
+
 
 def runs_root() -> Path:
     root = os.environ.get("MATFDM_RUNS")
@@ -41,9 +44,21 @@ def runs_root() -> Path:
     return Path(scratch) / "matfdm_runs"
 
 
-def run_dirs(root: Path, pattern: str) -> list[Path]:
-    return sorted(d for d in root.glob(pattern)
-                  if d.is_dir() and (d / "config.json").is_file())
+def run_dirs(root: Path, pattern: str) -> list:
+    """(目录, config) 列表, 按扫描值数值排序 —— 排序与命名规则都走 run_id.py。
+
+    不能按目录名字典序: 位数一混就乱, ft1e0 (=1) 在字典序里排在 ft2e-1 (=0.2) 前面,
+    和 front_thick 的大小顺序完全对不上。
+    """
+    pairs = []
+    for d in root.glob(pattern):
+        if not (d.is_dir() and (d / "config.json").is_file()):
+            continue
+        try:
+            pairs.append((d, json.loads((d / "config.json").read_text())))
+        except (OSError, ValueError):
+            continue
+    return R.sort_runs(pairs)[0]
 
 
 def child_env(run: Path, cfg: dict) -> dict:
@@ -89,8 +104,9 @@ def main() -> int:
     args = ap.parse_args()
 
     root = runs_root()
-    runs = run_dirs(root, args.pattern)
-    if not runs:
+    pairs = run_dirs(root, args.pattern)
+    swept = R.sweep_key([c for _, c in pairs])
+    if not pairs:
         print(f"{root} 下没有匹配 {args.pattern!r} 且带 config.json 的运行", file=sys.stderr)
         return 1
 
@@ -99,13 +115,16 @@ def main() -> int:
 
     print(f"数据根 : {root}")
     print(f"输出到 : {out}")
-    print(f"运行   : {len(runs)} 个 ({args.pattern}), 每个取前 {args.top} 名\n")
-    print(f"{'运行':<10s}{'评估':>7s}{'可行':>7s}  {'最佳 fitness':>14s}  文件")
+    print(f"运行   : {len(pairs)} 个 ({args.pattern}), 每个取前 {args.top} 名")
+    print(f"扫描   : {swept or '(认不出单一扫描字段, 按名字自然排序)'}\n")
+    col = swept.split('.')[-1] if swept else '值'
+    print(f"{'运行':<10s}{col:>10s}{'评估':>7s}{'可行':>7s}  {'最佳 fitness':>14s}  文件")
 
     ok = 0
-    for run in runs:
-        cfg = json.loads((run / "config.json").read_text())
+    for run, cfg in pairs:
         n_eval = len(list((run / "calibration" / "metrics").glob("*.csv")))
+        _sv = R.flatten(cfg).get(swept) if swept else None
+        sval = f"{_sv:g}" if _sv is not None else "-"
         txt = out / f"{run.name}.txt"
 
         cmd = [sys.executable, str(SHOW_BEST), "--top", str(args.top)]
@@ -131,9 +150,10 @@ def main() -> int:
                 break
         if proc.returncode == 0:
             ok += 1
-        print(f"{run.name:<10s}{n_eval:>7d}{feasible:>7s}  {best:>14s}  {txt.name}")
+        print(f"{run.name:<10s}{sval:>10s}{n_eval:>7d}{feasible:>7s}  "
+              f"{best:>14s}  {txt.name}")
 
-    print(f"\n{ok}/{len(runs)} 个运行导出成功 -> {out}")
+    print(f"\n{ok}/{len(pairs)} 个运行导出成功 -> {out}")
     return 0 if ok else 1
 
 

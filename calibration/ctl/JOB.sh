@@ -17,7 +17,7 @@ RUNS=$SCRATCH/matfdm_runs           # 数据根
 SWEEP_KEY=front_thick               # 要扫的字段 (overrides.xxx 可扫物理参数)
 SWEEP_VALUES="0.1 0.2 0.3 0.4 0.5 \
               0.6 0.7 0.8 0.9 1.0"
-PREFIX=ft                           # 运行目录名前缀 -> ft005, ft01, ...
+PREFIX=ft                           # 运行目录名前缀 -> ft1e-1, ft5e-1, ft1e0 ...
 
 # --- 所有运行共用的标定设置 ---
 POPULATION=40                       # 每代 case 数
@@ -58,9 +58,15 @@ echo " 覆盖       : $OVERRIDES"
 echo " license   : 入闸 $LIC_SEATS 席, 抢不到退避 ${LIC_BACKOFF}-${LIC_BACKOFF_MAX}s 重试到墙钟"
 echo "=========================================================="
 
-# 1) 建运行目录 + 写 config.json
-for v in $SWEEP_VALUES; do
-  id="${PREFIX}$(echo "$v" | tr -d '.')"
+# 1) 算运行名 + 建目录 + 写 config.json
+#    运行名统一走 run_id.py 的科学计数法: 0.1 -> ft1e-1, 1.0 -> ft1e0, 10 -> ft1e1。
+#    双射且永不撞名, 小数位数随便加。顺带查已存在目录里记的值对不对得上。
+#    (老做法直接 tr -d '.': 1.0 和 10 都得 ft10, 两条链混一个目录, 悄无声息全废)
+IDS=$($MF runid "$PREFIX" --key "$SWEEP_KEY" $SWEEP_VALUES) || {
+  echo "扫描值有问题, 没提交任何作业"; exit 1; }
+
+while read -r id v; do
+  [[ -n "$id" ]] || continue
   $MF new "$id" \
       "$SWEEP_KEY=$v" \
       "population=$POPULATION" "workers=$WORKERS" \
@@ -70,7 +76,7 @@ for v in $SWEEP_VALUES; do
       "keep_traj=$KEEP_TRAJ" "seed=$SEED" \
       "overrides=$OVERRIDES" > /dev/null
   echo "  [run] $id  ($SWEEP_KEY=$v)"
-done
+done <<< "$IDS"
 
 # 2) 清单: 每行一个运行目录, 第 k 行给第 k 个节点
 $MF list "${PREFIX}*" > "$MANIFEST"
