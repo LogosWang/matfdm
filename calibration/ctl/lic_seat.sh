@@ -19,7 +19,9 @@
 # 环境变量 (都有默认值, multi_node.sh 会按作业情况传):
 #   MATFDM_LIC_POOL         令牌池目录        默认 $MATFDM_RUNS/.lic_seats
 #   MATFDM_LIC_SEATS        同时签出的节点数  默认 2
-#   MATFDM_LIC_HOLD         令牌最长持有秒数  默认 420 (超时即视为节点已死)
+#   MATFDM_LIC_HOLD         令牌最长持有秒数  默认 420 —— 只管令牌, 不管重试:
+#                           超时就认定持有者已死并回收令牌, 被收的那个节点的
+#                           MATLAB 照常跑。放弃时刻是 GIVEUP (墙钟 - 5 min)。
 #   MATFDM_LIC_WAIT         抢令牌的轮询基数  默认 20 s
 #   MATFDM_LIC_BACKOFF      失败退避基数      默认 30 s
 #   MATFDM_LIC_BACKOFF_MAX  失败退避上限      默认 600 s

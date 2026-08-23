@@ -43,7 +43,7 @@ OVERRIDES='{"eff": 0.2}'      # 物理参数覆盖, 不改源码
 LIC_SEATS=2                   # 同时允许几个节点"试签出" MATLAB license (0=不设闸)
 LIC_BACKOFF=30                # 抢不到的退避基数 s (指数增长 + 抖动)
 LIC_BACKOFF_MAX=600           # 退避上限 s
-LIC_HOLD=420                  # 令牌最长持有 s, 超时视为节点已死自动回收
+LIC_HOLD=420                  # 入闸令牌最长持有 s (不是放弃时限)
 ```
 
 **节点数 = `SWEEP_VALUES` 的个数**,`JOB.sh` 自动算,不用手填 `-N`。
@@ -146,6 +146,11 @@ NERSC 的 MATLAB / Parallel Computing Toolbox license 是**全校共享**的,10 
 | 节点侧重试 | `node_task.sh` | MATLAB 基础 license 没抢到 → 退避 `LIC_BACKOFF`→`LIC_BACKOFF_MAX` s 重试 |
 | MATLAB 侧重试 | `run_generation.m` | PCT 没抢到 → 原地重试,**不丢**已经到手的基础席位 |
 | 令牌回收 | `lic_seat.sh` | 节点被 SIGKILL 留下的令牌,`LIC_HOLD` 秒后自动回收 |
+
+**什么时候放弃:只看墙钟。** 节点一路重试到作业结束前 5 分钟(`MATFDM_LIC_GIVEUP`,
+默认 300 s),退避封顶 600 s,所以 8 h 的作业里一个节点大约重试 50–90 次。
+`LIC_SEATS` / `LIC_BACKOFF` / `LIC_HOLD` **都不是放弃时限** —— `LIC_HOLD` 只管入闸
+令牌:超时就认定持有者已死、把令牌收回去,被收的那个节点的 MATLAB 照常跑。
 
 退避带随机抖动(equal jitter),否则 N 个节点会永远在同一秒一起重试,等于没退避。
 
