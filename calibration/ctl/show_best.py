@@ -32,6 +32,10 @@ STATE = RUNCAL / "state.json"
 METRICS = RUNCAL / "metrics"
 BUILD_P = CTRL.parent / "build_p_decouple.m"
 
+# propose_cmaes 从 CALIB_REPO_DIR 定位 metrics/。多运行模式下它必须指向本次
+# 运行的数据目录, 否则 evaluate_case 全部抛异常, 结果就是一句"没有可评分的样本"。
+os.environ["CALIB_REPO_DIR"] = str(RUN)
+
 NAMES = ["kCr", "kFe", "kSi", "kspin", "DCr2O3O", "DFe3O4",
          "DFeCr2O4", "DSiO2", "kRobin", "E_mag"]
 
@@ -78,6 +82,9 @@ def main() -> int:
 
     pc = load_pc()
     base = load_base()
+    if not STATE.is_file():           # 一代都没跑完的运行 (比如全程没抢到 license)
+        print(f"还没有 state.json ({STATE}), 这个运行一代都没跑完")
+        return 1
     state = json.loads(STATE.read_text())
 
     recs = []

@@ -28,6 +28,28 @@ module load python
 export CALIB_PYTHON=${CALIB_PYTHON:-$(command -v python3)}
 export MATFDM_CODE
 
+# ---- license 席位: 抢不到不退出, 退避重试到墙钟为止 (见 lic_seat.sh) ----
+# 作业截止时刻: 节点侧据此决定还能重试多久, 以及什么时候干净收手
+END=$(scontrol show job "${SLURM_JOB_ID:-0}" 2>/dev/null \
+      | tr ' ' '\n' | sed -n 's/^EndTime=//p' | head -1)
+if [[ -n "$END" && "$END" != "Unknown" ]]; then
+  MATFDM_DEADLINE=$(date -d "$END" +%s 2>/dev/null || echo 0)
+else
+  MATFDM_DEADLINE=0
+fi
+export MATFDM_DEADLINE
+export MATFDM_RUNS=${MATFDM_RUNS:-$(dirname "$MANIFEST")}
+export MATFDM_LIC_POOL=${MATFDM_LIC_POOL:-$MATFDM_RUNS/.lic_seats}
+export MATFDM_LIC_SEATS=${MATFDM_LIC_SEATS:-2}
+export MATFDM_LIC_HOLD=${MATFDM_LIC_HOLD:-420}
+export MATFDM_LIC_BACKOFF=${MATFDM_LIC_BACKOFF:-30}
+export MATFDM_LIC_BACKOFF_MAX=${MATFDM_LIC_BACKOFF_MAX:-600}
+export MATFDM_HARD_RETRIES=${MATFDM_HARD_RETRIES:-2}
+# 上一个作业被 SIGKILL 时可能留下没释放的令牌, 开工前清一遍
+mkdir -p "$MATFDM_LIC_POOL"
+find "$MATFDM_LIC_POOL" -maxdepth 1 -name 'seat*' -type d \
+     -mmin +$(( MATFDM_LIC_HOLD / 60 + 1 )) -exec rm -rf {} + 2>/dev/null || true
+
 echo "================================================================"
 echo "job     : ${SLURM_JOB_ID:-local}"
 echo "nodes   : $NNODES"
@@ -35,6 +57,12 @@ echo "manifest: $MANIFEST ($(wc -l < "$MANIFEST") 个运行)"
 echo "code    : $CODE"
 echo "python  : $CALIB_PYTHON ($("$CALIB_PYTHON" -c 'import sys;print(sys.version.split()[0])'))"
 echo "start   : $(date)"
+if (( MATFDM_DEADLINE > 0 )); then
+  echo "deadline: $(date -d "@$MATFDM_DEADLINE" '+%F %T')  (节点抢 license 抢到这个点)"
+else
+  echo "deadline: 未知 (scontrol 没给 EndTime), 节点按不限时重试"
+fi
+echo "license : 入闸 $MATFDM_LIC_SEATS 席, 退避 ${MATFDM_LIC_BACKOFF}-${MATFDM_LIC_BACKOFF_MAX}s, 池 $MATFDM_LIC_POOL"
 echo "================================================================"
 sed -n "1,${NNODES}p" "$MANIFEST" | nl -w3 -s'  节点 -> '
 
@@ -53,6 +81,11 @@ while read -r d; do
     echo "  $id : 命中 $(cat "$d/calibration/DONE")"
   else
     n=$(ls "$d"/calibration/metrics/*.csv 2>/dev/null | wc -l)
-    echo "  $id : 未命中, 已完成 $n 次评估"
+    lg="$d/node-${SLURM_JOB_ID:-local}-r"*.log
+    tries=$(grep -hc '^--- 第 ' $lg 2>/dev/null | head -1)
+    echo "  $id : 未命中, 已完成 $n 次评估, license 尝试 ${tries:-0} 次"
   fi
 done < <(sed -n "1,${NNODES}p" "$MANIFEST")
+
+# 本作业自己留下的令牌一律清掉, 不留给下一轮 (下一轮开工前也会再清一次)
+rm -rf "$MATFDM_LIC_POOL"/seat* 2>/dev/null || true

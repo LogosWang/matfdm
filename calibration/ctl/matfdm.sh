@@ -8,6 +8,7 @@
 #   list   [模式]                       列出运行目录 / 生成清单
 #   status [id]                         进度总览
 #   best   <id> [n]                     前 n 名及参数绝对值
+#   export [模式] [n] [输出目录]         每个运行的前 n 名各导一个 txt (后处理)
 #   stop / resume / clean <id>
 #
 # 例 —— 30 个前沿阈值, 30 节点一个作业, 排 4 轮接力:
@@ -97,7 +98,9 @@ cmd_launch() {
     local jid
     jid=$(sbatch --parsable -N "$n" -t "$wall" -A "$ACCOUNT" -J "$name" \
           -o "$RUNS/${name}-%j.out" ${dep:+--dependency=afterany:$dep} \
-          --export=ALL,MATFDM_CODE="$CODE",MATFDM_MANIFEST="$manifest" \
+          --export=ALL,MATFDM_CODE="$CODE",MATFDM_MANIFEST="$manifest",MATFDM_RUNS="$RUNS",\
+MATFDM_LIC_SEATS="${MATFDM_LIC_SEATS:-2}",MATFDM_LIC_BACKOFF="${MATFDM_LIC_BACKOFF:-30}",\
+MATFDM_LIC_BACKOFF_MAX="${MATFDM_LIC_BACKOFF_MAX:-600}",MATFDM_LIC_HOLD="${MATFDM_LIC_HOLD:-420}" \
           "$CODE/calibration/ctl/multi_node.sh")
     echo "  作业 $jid${dep:+ (等 $dep)}"
     dep=$jid          # 链式: 前一个结束后再跑, 断点续算
@@ -144,9 +147,25 @@ cmd_status() {
   done
 }
 
-cmd_best() { local id=${1:?}; local n=${2:-10}
-  local pop; pop=$(py -c "import json;print(json.load(open('$RUNS/$id/config.json'))['population'])")
-  MATFDM_RUN="$RUNS/$id" CALIB_POPULATION="$pop" py "$CODE/calibration/ctl/show_best.py" --top "$n"; }
+# 判据必须取该运行自己的 config.json —— 扫 middle_max/endpoint_band 时各运行
+# 标尺不同, 用全局默认值排出来的名次是假的。
+cmd_best() { local id=${1:?}; local n=${2:-10}; local d="$RUNS/$id"
+  eval "$(py - "$d/config.json" <<'PYEOF'
+import json, sys
+from pathlib import Path
+c = json.loads(Path(sys.argv[1]).read_text()); g = c.get
+print(f'export CALIB_POPULATION={g("population",40)}')
+print(f'export CALIB_MIDDLE_MAX={g("middle_max",70)}')
+print(f'export CALIB_ENDPOINT_BAND={g("endpoint_band",5)}')
+print(f'export CALIB_SEED={g("seed",20260804)}')
+PYEOF
+)"
+  MATFDM_RUN="$d" CALIB_REPO_DIR="$d" py "$CODE/calibration/ctl/show_best.py" --top "$n"; }
+
+# 后处理: 每个运行的前 n 名各导一个 <id>.txt, 默认 $RUNS/postprocess/
+cmd_export() { local pat=${1:-'ft*'}; local n=${2:-10}; local out=${3:-}
+  MATFDM_RUNS="$RUNS" py "$CODE/calibration/ctl/export_best.py" \
+      --pattern "$pat" --top "$n" ${out:+--out "$out"}; }
 cmd_stop()   { touch "$RUNS/${1:?}/calibration/STOP"; echo "已停 $1"; }
 cmd_resume() { rm -f "$RUNS/${1:?}/calibration/STOP"; echo "已解除 $1"; }
 cmd_clean()  { local d="$RUNS/${1:?}"
@@ -163,8 +182,9 @@ case "${1:-}" in
   submit) shift; cmd_submit "$@" ;;
   status) shift; cmd_status "$@" ;;
   best)   shift; cmd_best   "$@" ;;
+  export) shift; cmd_export "$@" ;;
   stop)   shift; cmd_stop   "$@" ;;
   resume) shift; cmd_resume "$@" ;;
   clean)  shift; cmd_clean  "$@" ;;
-  *) sed -n '2,24p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,25p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

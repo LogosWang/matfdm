@@ -55,15 +55,22 @@ else
 end
 
 % ---------- parpool: 整个作业只开一次 ----------
+% license 是 NERSC 全校共享的。抢不到 PCT 席位时**不能直接抛错退出** ——
+% 退出等于把已经到手的 MATLAB 基础席位一起扔掉, 而且作业秒退会把 afterany
+% 接力链瞬间烧光 (2026-08-23: 13 个作业 20 分钟全烧完)。这里原地退避重试。
 pool = gcp('nocreate');
 if isempty(pool)
-    cl = parcluster('Processes');
+    cl = grab_license(@() parcluster('Processes'), 'PCT (parcluster)', calib);
+    mark_license_ready();          % 两个 license 都到手了, 通知 shell 放闸
     store = fullfile(scratchdir(), 'matlab_jobstore', ...
                      sprintf('job%s_pid%d', jobid(), feature('getpid')));
     if ~exist(store, 'dir'), mkdir(store); end
     cl.JobStorageLocation = store;
     cl.NumWorkers = workers;
-    pool = parpool(cl, workers, 'IdleTimeout', inf);
+    pool = grab_license(@() parpool(cl, workers, 'IdleTimeout', inf), ...
+                        'parpool', calib);
+else
+    mark_license_ready();
 end
 say('[pool] %d workers 就绪, 耗时 %.0f s', pool.NumWorkers, toc(tStart));
 
@@ -218,6 +225,58 @@ while true
 end
 
 say('[exit] 总耗时 %.1f h', toc(tStart)/3600);
+end
+
+% ===================================================================
+function out = grab_license(fn, what, calib)
+%GRAB_LICENSE  执行 fn; 只要是 license 抢不到就退避重试, 不当场判死。
+%
+%   退避 = MATFDM_LIC_BACKOFF * 2^(k-1), 封顶 MATFDM_LIC_BACKOFF_MAX, 再加
+%   0-30 s 随机抖动 —— 抖动是关键, 否则 N 个节点会永远同步重试同一秒。
+%   非 license 的错误原样抛出 (那是真 bug, 重试也没用)。
+tries = envnum('MATFDM_LIC_TRIES',       60);
+base  = envnum('MATFDM_LIC_BACKOFF',     30);
+capw  = envnum('MATFDM_LIC_BACKOFF_MAX', 600);
+for k = 1:tries
+    if exist(fullfile(calib,'STOP'),'file')
+        error('run_generation:stopped', '抢 %s license 期间见到 STOP', what);
+    end
+    try
+        out = fn();
+        if k > 1, say('[lic] %s 第 %d 次抢到', what, k); end
+        return
+    catch err
+        if ~is_license_error(err) || k == tries, rethrow(err); end
+        p0 = gcp('nocreate');            % parpool 半死不活时先收干净再重试
+        if ~isempty(p0), delete(p0); end
+        w = min(capw, base * 2^(k-1)) + rand() * 30;
+        say('[lic] %s 席位没抢到 (第 %d/%d 次), %.0f s 后重试', what, k, tries, w);
+        pause(w);
+    end
+end
+end
+
+function tf = is_license_error(err)
+m = [err.identifier ' ' err.message];
+tf = contains(m, 'License checkout failed') ...
+  || contains(m, 'Licensing error') ...
+  || contains(m, 'Maximum number of users') ...
+  || contains(m, 'License Manager Error') ...
+  || contains(m, 'license', 'IgnoreCase', true);
+end
+
+function mark_license_ready()
+%MARK_LICENSE_READY  写标记告诉 node_task.sh: license 到手了, 可以放闸。
+f = getenv('MATFDM_LIC_READY');
+if isempty(f), return; end
+try
+    fid = fopen(f, 'w');
+    if fid > 0
+        fprintf(fid, '%s %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'), jobid());
+        fclose(fid);
+    end
+catch
+end
 end
 
 % ===================================================================

@@ -39,6 +39,20 @@ module load matlab
 module load python                      # 计算节点默认 python3 是 3.6, 不支持 3.7+ 语法
 export CALIB_PYTHON=${CALIB_PYTHON:-$(command -v python3)}
 
+# ---- license 席位: 抢不到不当场退出, 退避重试到墙钟为止 (见 lic_seat.sh) ----
+export MATFDM_RUNS=${MATFDM_RUNS:-$(dirname "$RUN")}
+# shellcheck source=lic_seat.sh
+source "$CODE/calibration/ctl/lic_seat.sh"
+END=$(scontrol show job "${SLURM_JOB_ID:-0}" 2>/dev/null \
+      | tr ' ' '\n' | sed -n 's/^EndTime=//p' | head -1)
+if [[ -n "$END" && "$END" != "Unknown" ]]; then
+  DEADLINE=$(date -d "$END" +%s 2>/dev/null || echo 0)
+else
+  DEADLINE=0
+fi
+(( DEADLINE <= 0 )) && DEADLINE=$(( $(date +%s) + 3600 * 24 * 30 ))
+GIVEUP=$(( DEADLINE - ${MATFDM_LIC_GIVEUP:-300} ))
+
 # ---- 从 config.json 读运行参数 (环境变量可临时覆盖) ----
 eval "$("$CALIB_PYTHON" - "$RUN/config.json" <<'PYEOF'
 import json, sys
@@ -76,9 +90,8 @@ fi
 
 "$CALIB_PYTHON" "$CODE/calibration/ctl/gen_tool.py" history 0 2>/dev/null || true
 
-srun -n 1 -c 128 --cpu-bind=none \
-  matlab -nodisplay -nosplash -batch \
-  "addpath('$CODE'); addpath('$CODE/calibration/ctl'); run_generation"
+trap 'lic_seat_release' EXIT
+lic_run_matlab "$CODE" "$RUN" "$RUN/calibration/STOP" "$GIVEUP" "single" || true
 
 echo "=== job ${SLURM_JOB_ID:-local} matlab exit $(date)"
 if [[ -e "$RUN/calibration/DONE" ]]; then

@@ -1,18 +1,55 @@
-*.asv
-*.csv
-*.mat
-*.png
+# ============================================================================
+#  只跟踪代码。所有"算出来的东西"一律不进仓库。
+#
+#  正常用法下数据根是 $SCRATCH/matfdm_runs/<id>/, 本来就在仓库外; 但 MATFDM_RUN
+#  没设时会回退到代码目录 (兼容旧用法), 那时中间结果会落在这里 —— 下面把这两
+#  种布局都盖住。
+# ============================================================================
 
-# Calibration runtime state (not code)
+# ---- 编辑器 / 系统垃圾 ----
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+.DS_Store
+._*
+*.asv
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+
+# ---- 计算产物 (数值结果, 图, 表) ----
+*.mat
+*.csv
+*.png
+*.fig
+*.pdf
+
+# ---- 单腿求解的中间结果与断点 ----
+decouple/
+checkpoint/
+matlab_jobstore/
+
+# ---- 标定运行时状态 (不是代码) ----
 calibration/__pycache__/
 calibration/controller-runtime.json
 calibration/controller-status.json
 calibration/controller.lock
 calibration/state.json
+calibration/attempts.json
 calibration/archive/
 calibration/metrics/
+calibration/logs/
+calibration/DONE
+calibration/DONE.stale.*
+calibration/STOP
+calibration/.lic_ready.*
+calibration/.matlab_try.*
 
-# CMA optimizer runtime state snapshots
+# ---- CMA 优化器的持久状态快照 ----
 calibration/optimizer/*.pkl
 calibration/optimizer/*.json
 calibration/optimizer/*_cma_generation.json
@@ -22,8 +59,13 @@ calibration/optimizer/*_fitness_history.csv
 calibration/optimizer/*_mean_log_multipliers.csv
 calibration/optimizer/*_proposed_steps.json
 
-# Run output data
-decouple/
-checkpoint/
-__pycache__/
-*.pyc
+# ---- 作业与后处理产物 ----
+config.json                 # 运行目录的配置, 由 matfdm.sh new 生成
+provenance.txt
+runs_*.txt                  # 节点清单
+postprocess/                # export_best.py 导出的 ft*.txt / ft*.csv
+node-*.log
+slurm-*.out
+mn_*.out
+mf_*.out
+.lic_seats/                 # license 席位令牌池

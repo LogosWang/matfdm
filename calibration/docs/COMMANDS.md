@@ -1,126 +1,221 @@
-# matfdm 标定 — 命令速查
+# matfdm 标定 — 操作手册
 
-## 结构
+## 一、提交作业(只需要这一件事)
 
-```
-代码 (只读, 一份)                        数据 ($SCRATCH/matfdm_runs/<id>/)
-matfdm/                                  <id>/
-├── build_p_decouple.m  基线参数           ├── config.json        唯一配置源
-├── rhs_aks.m …         物理                ├── provenance.txt     commit + 配置快照
-├── run_root.m          数据根解析          ├── decouple/<case>/dose<d>/
-├── read_run_config.m   读 config.json      ├── checkpoint/<case>/
-└── calibration/                           └── calibration/
-    ├── ctl/            控制器与工具            ├── metrics/<case>.csv
-    │   ├── matfdm.sh       总入口              ├── state.json
-    │   ├── multi_node.sh   N 节点作业          ├── optimizer/  CMA pickle+历史
-    │   ├── node_task.sh    单节点任务          ├── logs/       每条腿 diary
-    │   ├── single_node.sh  单节点作业          └── DONE / STOP
-    │   ├── run_generation.m   常驻驱动
-    │   ├── run_leg_worker.m   腿包装
-    │   ├── gen_tool.py        代级助手
-    │   ├── show_best.py       排名+参数
-    │   ├── rescore_best.py    换标尺后重算
-    │   └── patch_objective.py 目标函数补丁
-    ├── optimizer/      CMA-ES
-    ├── vendor/         pycma
-    └── docs/           本文件
-```
-
-**隔离**:`MATFDM_RUN` 指到哪,数据写到哪。代码目录永远只读,多个运行/多个节点互不可见。
-**配置**:改 `config.json`,不改源码。`overrides` 里的字段在 `build_p_decouple` 之后覆盖到 `p`。
-**指纹**:`params.txt` 含乘子+基线+全部关键标量,改任何物理量旧腿自动作废重算。
-
-## 前置
+**所有设置都在 `calibration/ctl/JOB.sh` 顶部的设置区里,改完直接跑:**
 
 ```bash
-export MATFDM_CODE=$SCRATCH/projects/matfdm     # 代码目录
-export MATFDM_RUNS=$SCRATCH/matfdm_runs         # 数据根 (默认值同此)
-export MATFDM_ACCOUNT=m5181                     # 账号
-alias mf='bash $MATFDM_CODE/calibration/ctl/matfdm.sh'
+cd $SCRATCH/projects/matfdm
+vi calibration/ctl/JOB.sh        # 改设置区
+bash calibration/ctl/JOB.sh      # 建运行目录 + 生成清单 + 提交作业链
 ```
 
-## 多节点(主用法)
+它会打印每个运行、清单路径、以及提交出去的作业号,最后给出看进度的命令。
+
+### JOB.sh 设置区
 
 ```bash
-# 1) 批量建运行: 30 个前沿阈值
-mf sweep front_thick "0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2 1.3 1.4 1.5 \
-                      1.6 1.7 1.8 1.9 2.0 2.2 2.4 2.6 2.8 3.0 3.5 4.0 4.5 5.0 6.0 8.0" ft
+ACCOUNT=m5181                 # SLURM 账号
+WALLTIME=18:00:00             # 每个作业的墙钟
+NJOBS=4                       # 排几轮接力 (afterany 链, 断点续算)
+QOS=regular                   # regular / debug / preempt
 
-# 2) 生成清单 (每行一个运行目录, 第 k 行给第 k 个节点)
-mf list 'ft*' > $MATFDM_RUNS/runs_ft.txt
+CODE=$SCRATCH/projects/matfdm # 代码目录 (只读)
+RUNS=$SCRATCH/matfdm_runs     # 数据根
 
-# 3) 一个作业占 30 节点, 排 4 轮接力 (afterany 链, 断点续算)
-mf launch $MATFDM_RUNS/runs_ft.txt 4
+SWEEP_KEY=front_thick         # 要扫的字段
+SWEEP_VALUES="0.05 0.1 ... 1.5"   # 每个值一个运行, 一个运行占一个节点
+PREFIX=ft                     # 目录名前缀 -> ft005, ft01, ...
+
+POPULATION=40                 # 每代 case 数
+WORKERS=120                   # parpool worker 数 (= POPULATION × 剂量数)
+DOSES="[0, 0.5, 3]"
+TARGETS="[40, 60, 100]"
+MIDDLE_MAX=70                 # 0.5 dpa 软带上限 nm
+ENDPOINT_BAND=5               # 端点硬约束 nm
+ENDPOINT_TOL=3                # 成功判据端点容差 nm
+MAX_ATTEMPTS=3
+KEEP_TRAJ=false
+SEED=20260804
+
+OVERRIDES='{"eff": 0.2}'      # 物理参数覆盖, 不改源码
+
+LIC_SEATS=2                   # 同时允许几个节点"试签出" MATLAB license (0=不设闸)
+LIC_BACKOFF=30                # 抢不到的退避基数 s (指数增长 + 抖动)
+LIC_BACKOFF_MAX=600           # 退避上限 s
+LIC_HOLD=420                  # 令牌最长持有 s, 超时视为节点已死自动回收
 ```
 
-`launch` 会按清单行数自动定 `-N`。作业名 `mn_<清单名>`,链式依赖保证前一轮结束后一轮再上。
-单节点崩掉不影响其他节点(`--kill-on-bad-exit=0`,`node_task.sh` 永远 exit 0)。
+**节点数 = `SWEEP_VALUES` 的个数**,`JOB.sh` 自动算,不用手填 `-N`。
+30 个值 → 每个作业 30 节点;`NJOBS=4` → 4 × 18 h = 最多 72 h 连续算。
 
-扫别的量一样:
+### 常见几种扫描
 
 ```bash
-mf sweep overrides.eff "0.05 0.1 0.15 0.2 0.25 0.3" eff
-mf sweep middle_max "60 65 70 75" mm
-mf sweep overrides.Dgb "1e-4 5e-4 1e-3 5e-3" dgb
-mf list 'eff*' > $MATFDM_RUNS/runs_eff.txt && mf launch $MATFDM_RUNS/runs_eff.txt 4
+# 前沿判据阈值
+SWEEP_KEY=front_thick ; SWEEP_VALUES="0.25 0.5 0.75 1.0 1.5 2.0" ; PREFIX=ft
+
+# 级联效率 (物理参数走 overrides.)
+SWEEP_KEY=overrides.eff ; SWEEP_VALUES="0.05 0.1 0.15 0.2 0.25 0.3" ; PREFIX=eff
+
+# Ni 排出速率
+SWEEP_KEY=overrides.Dgb ; SWEEP_VALUES="1e-4 5e-4 1e-3 5e-3" ; PREFIX=dgb
+
+# 0.5 dpa 软带上限
+SWEEP_KEY=middle_max ; SWEEP_VALUES="60 65 70 75" ; PREFIX=mm
+
+# 多条独立 CMA 链 (同配置不同种子)
+SWEEP_KEY=seed ; SWEEP_VALUES="101 202 303 404 505" ; PREFIX=seed
 ```
 
-任意组合手工写清单也行,一行一个运行目录即可。
-
-## 单节点(调试/单变体)
+### 单个运行(调试用)
 
 ```bash
-mf new base                         # 用默认 config
-mf new base front_thick=0.5 population=40 overrides.eff=0.2
-mf submit base 4                    # 排 4 个单节点接力作业
+alias mf='bash $SCRATCH/projects/matfdm/calibration/ctl/matfdm.sh'
+mf new test front_thick=0.5 population=40 overrides.eff=0.2
+mf submit test 2                 # 2 个单节点接力作业
 ```
 
-## 看进度
+### 交互节点验证(不占正式机时)
+
+```bash
+salloc -N 5 -q interactive -C cpu -t 01:00:00 -A m5181
+export MATFDM_CODE=$SCRATCH/projects/matfdm
+export MATFDM_MANIFEST=$SCRATCH/matfdm_runs/runs_ft.txt
+bash $MATFDM_CODE/calibration/ctl/multi_node.sh
+```
+
+每个节点日志里出现 `[gen 01] 40 cases x 3 dose = 120 legs` 就是通了。
+
+### MATLAB license 席位(自动,一般不用管)
+
+NERSC 的 MATLAB / Parallel Computing Toolbox license 是**全校共享**的,10 个节点
+同时起 MATLAB 抢不到很正常。抢不到时节点**不会退出**,而是原地退避重试到墙钟为止:
+
+| 层 | 在哪 | 干什么 |
+|---|---|---|
+| 入闸令牌 | `lic_seat.sh` | 同一时刻最多 `LIC_SEATS` 个节点在试签出,避免一起冲服务器 |
+| 放闸 | `run_generation.m` → `node_task.sh` | `parcluster` 一成功就写 READY 标记,令牌立刻还给下一个排队节点 |
+| 节点侧重试 | `node_task.sh` | MATLAB 基础 license 没抢到 → 退避 `LIC_BACKOFF`→`LIC_BACKOFF_MAX` s 重试 |
+| MATLAB 侧重试 | `run_generation.m` | PCT 没抢到 → 原地重试,**不丢**已经到手的基础席位 |
+| 令牌回收 | `lic_seat.sh` | 节点被 SIGKILL 留下的令牌,`LIC_HOLD` 秒后自动回收 |
+
+退避带随机抖动(equal jitter),否则 N 个节点会永远在同一秒一起重试,等于没退避。
+
+```bash
+grep -c '^--- 第 ' $SCRATCH/matfdm_runs/ft05/node-*.log     # 这个节点抢了几次
+grep 'license 到手' $SCRATCH/matfdm_runs/ft*/node-*.log      # 谁抢到了, 花了多久
+ls $SCRATCH/matfdm_runs/.lic_seats                          # 当前谁占着入闸令牌
+```
+
+**为什么必须这么做**:老版本抢不到就 `exit 1`,作业 2 分钟"跑完",`afterany`
+接力链被瞬间烧光 —— 2026-08-23 那次 13 个作业 20 分钟全部空转结束,一代都没算。
+
+---
+
+## 二、看进度
+
+```bash
+alias mf='bash $SCRATCH/projects/matfdm/calibration/ctl/matfdm.sh'
+```
 
 | 目的 | 命令 |
 |---|---|
 | 全部运行总览 | `mf status` |
-| 某个运行的 CMA 状态 | `mf status ft05` |
-| 前十名+参数绝对值 | `mf best ft05 10` |
-| 排名(现算, 不读快照) | `MATFDM_RUN=$MATFDM_RUNS/ft05 python3 $MATFDM_CODE/calibration/ctl/gen_tool.py rank --top 20` |
-| 某代逐 case | `MATFDM_RUN=… gen_tool.py report 12` |
-| 某 case 三行指标 | `column -s, -t $MATFDM_RUNS/ft05/calibration/metrics/b12_c07_cma.csv` |
-| 多节点作业总日志 | `tail -f $MATFDM_RUNS/mn_runs_ft-*.out` |
-| 某节点的日志 | `tail -f $MATFDM_RUNS/ft05/node-*-r*.log` |
-| 某条腿跑到第几窗 | `tail -3 $MATFDM_RUNS/ft05/calibration/logs/b12_c07_cma_dose3.log` |
+| 某运行的 CMA 状态 | `mf status ft05` |
+| 前十名 + 参数绝对值 | `mf best ft05 10` |
+| **每个运行各导一份前十名 txt** | `mf export 'ft*' 10` |
+| 某节点抢了几次 license | `grep -c '^--- 第 ' $SCRATCH/matfdm_runs/ft05/node-*.log` |
 | 队列 | `squeue --me -o "%.10i %.12j %.6D %.8T %.9M %.20R"` |
+| 多节点作业总日志 | `tail -f $SCRATCH/matfdm_runs/mn_ft-*.out` |
+| 某节点日志 | `tail -f $SCRATCH/matfdm_runs/ft05/node-*.log` |
+| 某条腿跑到第几窗 | `tail -3 $SCRATCH/matfdm_runs/ft05/calibration/logs/b12_c07_cma_dose3.log` |
+| 某 case 三行指标 | `column -s, -t $SCRATCH/matfdm_runs/ft05/calibration/metrics/b12_c07_cma.csv` |
+| 排名(现算, 不读快照) | `MATFDM_RUN=$SCRATCH/matfdm_runs/ft05 python3 $MATFDM_CODE/calibration/ctl/gen_tool.py rank --top 20` |
+| 某一代逐 case | `MATFDM_RUN=… python3 …/gen_tool.py report 12` |
+| 节点内存/进程 | `ssh <node> 'pgrep -c -u $USER -f MATLAB; free -g\|sed -n 2p'` (应 121 进程) |
 
-`fitness_history.csv` 与 `cma_generation.json` 是**上一次 propose 的快照**;改过目标函数要用 `rank` / `best` 现算,或等下一代刷新。
+`fitness_history.csv` 和 `cma_generation.json` 是**上一次 propose 的快照**;改过目标函数要用 `rank` / `best` 现算,或等下一代刷新。
 
-## 停/续/清
+**时间参考**:pool 启动 5–6 min,单腿约 52 min,一代 1–1.5 h,18 h 作业约 12–16 代。
+
+---
+
+## 三、后处理:每个 ft 的前十名导成 txt
 
 ```bash
-mf stop ft05          # 写 STOP, 该运行的节点空转退出
+mf export                       # 全部 ft*, 前十名 -> $SCRATCH/matfdm_runs/postprocess/ft01.txt ...
+mf export 'ft*' 20              # 前二十名
+mf export 'eff*' 10 ~/out       # 换扫描前缀 / 换输出目录
+```
+
+底层就是 `export_best.py`,想直接调也行:
+
+```bash
+module load python
+MATFDM_RUNS=$SCRATCH/matfdm_runs \
+  python3 $MATFDM_CODE/calibration/ctl/export_best.py --pattern 'ft*' --top 10 --csv
+```
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `--pattern` | `ft*` | 运行目录通配 |
+| `--top` | 10 | 每个运行取前几名 |
+| `--out` | `<数据根>/postprocess` | 输出目录 |
+| `--csv` | 关 | 顺带导一份同名 `.csv` |
+
+每个运行一个文件,**文件名 = 运行目录名**(`ft01.txt`、`ft02.txt`…)。正文格式与
+`mf best` / `show_best.py` 完全一致 —— 脚本是逐个运行去调 `show_best.py`,不是
+把排版逻辑另抄一遍,所以将来改 `show_best.py` 的输出这里自动跟着变。文件头另加
+一段运行信息(目录、导出时间、已评估数、config、命中标记)。
+
+判据(`population` / `middle_max` / `endpoint_band` / `seed`)取**该运行自己的
+`config.json`**,不是全局默认值 —— 扫 `middle_max` 这类字段时各运行标尺不同,
+用错标尺排出来的名次是假的。
+
+终端同时打印一张总表,一眼看出哪个 `front_thick` 最有戏:
+
+```
+运行             评估     可行      最佳 fitness  文件
+ft01          560  0/560    1014165.3390  ft01.txt
+ft04          800  0/800    1077050.3453  ft04.txt
+ft08            0      -               -  ft08.txt      <- 一代都没跑完
+```
+
+---
+
+## 四、停 / 续 / 清
+
+```bash
+mf stop ft05                          # 该运行的节点空转退出
 mf resume ft05
-mf clean ft05         # 清数据保留 config.json
-scancel --me -n mn_runs_ft      # 取消整个多节点作业链
+mf clean ft05                         # 清数据, 保留 config.json
+touch $SCRATCH/matfdm_runs/ft*/calibration/STOP     # 全停
+squeue --me -h -o "%i %j" | awk '$2 ~ /^mn_ft/ {print $1}' | xargs -r scancel
 ```
 
-## 改配置 / 改判据
+---
 
-改 `config.json` 后**不需要动代码**,下一个作业自动生效;涉及物理的改动会通过指纹让旧腿重算。
+## 五、改配置
+
+改 `config.json` **不需要动代码**,下一个作业自动生效;涉及物理的改动会通过参数指纹让旧腿自动作废重算。
 
 ```bash
-vi $MATFDM_RUNS/ft05/config.json         # front_thick / targets / overrides.eff / …
-mf new ft05 front_thick=0.75             # 或者用 new 增量改 (幂等, 保留已有字段)
+vi $SCRATCH/matfdm_runs/ft05/config.json
+mf new ft05 front_thick=0.75          # 或增量改 (幂等, 保留其他字段)
 ```
 
-改目标函数(全局,影响所有运行):
+改目标函数(全局):
 
 ```bash
-python3 $MATFDM_CODE/calibration/ctl/patch_objective.py     # 幂等
-MATFDM_RUN=$MATFDM_RUNS/ft05 CALIB_POPULATION=40 \
-  python3 $MATFDM_CODE/calibration/ctl/rescore_best.py      # 每个运行各跑一次
+python3 $MATFDM_CODE/calibration/ctl/patch_objective.py            # 幂等
+MATFDM_RUN=$SCRATCH/matfdm_runs/ft05 CALIB_POPULATION=40 \
+  python3 $MATFDM_CODE/calibration/ctl/rescore_best.py             # 每个运行各跑一次
 ```
 
-**时机**:改 `cma_state.pkl` 的操作要在两次 propose 之间做——看到 `[gen NN] … legs` 之后最安全。
+**时机**:改 `cma_state.pkl` 的操作(rescore/patch)要在两次 propose 之间做——看到 `[gen NN] … legs` 之后最安全,不用停作业。
 
-## config.json 字段
+### config.json 字段
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
@@ -133,17 +228,65 @@ MATFDM_RUN=$MATFDM_RUNS/ft05 CALIB_POPULATION=40 \
 | `endpoint_tol` | 3 | 成功判据端点容差 nm |
 | `max_attempts` | 3 | 腿失败几次后熔断该 case |
 | `keep_traj` | false | 是否存 `*_timeseries.mat` (每腿 ~7 MB) |
-| `seed` | 20260804 | CMA 随机种子 (多链要给不同值) |
+| `seed` | 20260804 | CMA 种子 (多链要给不同值) |
 | `overrides` | `{}` | 覆盖 `p` 的任意字段: `eff`、`Dgb`、`Ks`、`rOM`… |
 
-## 故障对照
+---
+
+## 六、结构
+
+```
+代码 (只读, 一份)                        数据 ($SCRATCH/matfdm_runs/<id>/)
+matfdm/                                  <id>/
+├── build_p_decouple.m  基线参数           ├── config.json      唯一配置源
+├── rhs_aks.m …         物理                ├── provenance.txt   commit + 配置快照
+├── run_root.m          数据根解析          ├── decouple/<case>/dose<d>/
+├── read_run_config.m   读 config.json      ├── checkpoint/<case>/
+└── calibration/                           ├── node-<job>-r<k>.log
+    ├── ctl/                                └── calibration/
+    │   ├── JOB.sh          提交入口            ├── metrics/<case>.csv
+    │   ├── matfdm.sh       管理命令            ├── state.json
+    │   ├── multi_node.sh   N 节点作业          ├── optimizer/  CMA pickle+历史
+    │   ├── node_task.sh    单节点任务          ├── logs/       每条腿 diary
+    │   ├── single_node.sh  单节点作业          └── DONE / STOP
+    │   ├── run_generation.m   常驻驱动
+    │   ├── run_leg_worker.m   腿包装
+    │   ├── gen_tool.py        代级助手
+    │   ├── show_best.py       排名+参数
+    │   ├── export_best.py     逐运行导前 N 名 txt
+    │   ├── lic_seat.sh        license 席位抢占
+    │   ├── rescore_best.py    换标尺后重算
+    │   └── patch_objective.py 目标函数补丁
+    ├── optimizer/      CMA-ES
+    ├── vendor/         pycma
+    └── docs/           本文件
+
+数据根还有两个跨运行的东西:
+$SCRATCH/matfdm_runs/
+├── .lic_seats/         license 入闸令牌池 (跨节点共享, 自动清理)
+└── postprocess/        mf export 导出的 ft01.txt / ft02.txt / ...
+```
+
+**隔离**:`MATFDM_RUN` 指到哪数据写到哪;代码目录永远只读,多个运行/节点互不可见。
+**配置**:`config.json` 是唯一真相源,`overrides` 在 `build_p_decouple` 之后覆盖到 `p`。
+**指纹**:`params.txt` = 乘子 + 基线 + 全部关键标量,改任何物理量旧腿自动作废重算。
+**容错**:腿有 checkpoint(原子写);`_COMPLETE` 标记防半截结果;单节点崩不影响其他节点;CMA 状态丢了能从 metrics 重放历史。
+
+---
+
+## 七、故障对照
 
 | 现象 | 处理 |
 |---|---|
-| 节点空转 "清单里没有第 k 行" | 清单行数少于 `-N`,正常;`launch` 会自动按行数定节点数 |
-| 秒退 "已命中且仍达标" | 真命中;想继续优化就收紧 `middle_max` 或删 `DONE` |
-| 秒退 "STOP 存在" | `mf resume <id>` |
+| 节点空转"清单里没有第 k 行" | 清单行数 < 节点数, 正常;`JOB.sh` 会自动按行数定 `-N` |
+| 秒退"已命中且仍达标" | 真命中;想继续就收紧 `middle_max` 或删该运行的 `DONE` |
+| 秒退"STOP 存在" | `mf resume <id>` |
 | `future feature annotations` | 用了 /usr/bin/python3 (3.6);`module load python` |
 | `CMA-ES 提议失败` | 看日志里紧跟的 python 报错;缺指标会自动 `penalize-missing` 重试 |
-| parpool 停住 | 120 worker 起来要 5–6 分钟;超 10 分钟查 `pgrep -c -u $USER -f MATLAB` |
-| 某腿反复失败 | 3 次后熔断;错误在 `<run>/calibration/logs/<tag>_dose<d>_error.log` |
+| parpool 停住 | 120 worker 起来要 5–6 min;超 10 min 查 `pgrep -c -u $USER -f MATLAB` 是否在涨 |
+| `Maximum number of users for MATLAB reached` | 正常,全校共享 license。节点会自动退避重试,**不会**再秒退;日志里看 `--- license 没抢到 (第 N 次)` |
+| 作业几分钟就"跑完"、接力链被烧光 | 老版本的行为。确认 `node_task.sh` 里有 `lic_run_matlab`,且 `mn_*.out` 里打印了 `deadline:` 与 `license :` 两行 |
+| 全程一代没跑完(评估 0) | 该节点整个作业都没抢到席位。调小 `LIC_SEATS`、调大 `WALLTIME`,或错峰提交 |
+| `mf best` 说"没有可评分的样本" | 该运行还没有 `state.json`(一代都没完);有 `state.json` 还这样就是 `CALIB_REPO_DIR` 没指到运行目录 |
+| 某腿反复失败 | 3 次后熔断,不卡整代;错误在 `<run>/calibration/logs/<tag>_dose<d>_error.log` |
+| 内存吃紧 | 单腿约 1.8 GB;`workers` × 1.8 GB 必须 < 400 GB |
