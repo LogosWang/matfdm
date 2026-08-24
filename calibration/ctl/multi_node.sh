@@ -23,13 +23,25 @@ CODE=${MATFDM_CODE:?"缺 MATFDM_CODE"}
 MANIFEST=${MATFDM_MANIFEST:?"缺 MATFDM_MANIFEST"}
 NNODES=${SLURM_JOB_NUM_NODES:-1}
 
-module load matlab
+ENGINE=${MATFDM_ENGINE:-mcr}
 module load python
+if [[ "$ENGINE" == mcr ]]; then
+  # 编译版: 只要 Runtime, 不加载 matlab, 不签任何 license
+  module load matlab-mcr 2>/dev/null || true
+  export MCR_ROOT=${MCR_ROOT:-/global/common/software/nersc9/matlab/MCR/R2023b}
+  export MATFDM_BUILD_DIR=${MATFDM_BUILD_DIR:-${MATFDM_BUILD:-$SCRATCH/matfdm_build}/CURRENT}
+  export MATFDM_BUILD_COMMIT=$(cat "$MATFDM_BUILD_DIR/BUILD_COMMIT" 2>/dev/null || echo unknown)
+  [[ -x "$MATFDM_BUILD_DIR/run_matfdm_run.sh" ]] || {
+    echo "!! 没有编译产物 $MATFDM_BUILD_DIR, 先跑 build_standalone.sh" >&2; exit 1; }
+  # CTF 解压缓存必须放节点本地 (/tmp 是 tmpfs); 放 Lustre 会被 120 进程打死
+  export MCR_CACHE_ROOT=/tmp/$USER/mcr.${SLURM_JOB_ID:-local}
+else
+  module load matlab
+fi
 export CALIB_PYTHON=${CALIB_PYTHON:-$(command -v python3)}
-export MATFDM_CODE
+export MATFDM_CODE MATFDM_ENGINE="$ENGINE"
 
-# ---- license 席位: 抢不到不退出, 退避重试到墙钟为止 (见 lic_seat.sh) ----
-# 作业截止时刻: 节点侧据此决定还能重试多久, 以及什么时候干净收手
+# ---- 作业截止时刻: 节点侧据此决定腿的墙钟预算 (回退路线还用它决定重试多久) ----
 END=$(scontrol show job "${SLURM_JOB_ID:-0}" 2>/dev/null \
       | tr ' ' '\n' | sed -n 's/^EndTime=//p' | head -1)
 if [[ -n "$END" && "$END" != "Unknown" ]]; then
@@ -62,7 +74,13 @@ if (( MATFDM_DEADLINE > 0 )); then
 else
   echo "deadline: 未知 (scontrol 没给 EndTime), 节点按不限时重试"
 fi
-echo "license : 入闸 $MATFDM_LIC_SEATS 席, 退避 ${MATFDM_LIC_BACKOFF}-${MATFDM_LIC_BACKOFF_MAX}s, 池 $MATFDM_LIC_POOL"
+if [[ "$ENGINE" == mcr ]]; then
+  echo "engine  : MCR standalone  build=$MATFDM_BUILD_COMMIT  ($MATFDM_BUILD_DIR)"
+  echo "license : 0 个席位 (MCR 不连 license server)"
+else
+  echo "engine  : matlab (回退路线)"
+  echo "license : 入闸 $MATFDM_LIC_SEATS 席, 退避 ${MATFDM_LIC_BACKOFF}-${MATFDM_LIC_BACKOFF_MAX}s, 池 $MATFDM_LIC_POOL"
+fi
 echo "================================================================"
 sed -n "1,${NNODES}p" "$MANIFEST" | nl -w3 -s'  节点 -> '
 
@@ -82,8 +100,12 @@ while read -r d; do
   else
     n=$(ls "$d"/calibration/metrics/*.csv 2>/dev/null | wc -l)
     lg="$d/node-${SLURM_JOB_ID:-local}-r"*.log
-    tries=$(grep -hc '^--- 第 ' $lg 2>/dev/null | head -1)
-    echo "  $id : 未命中, 已完成 $n 次评估, license 尝试 ${tries:-0} 次"
+    if [[ "$ENGINE" == mcr ]]; then
+      echo "  $id : 未命中, 已完成 $n 次评估"
+    else
+      tries=$(grep -hc '^--- 第 ' $lg 2>/dev/null | head -1)
+      echo "  $id : 未命中, 已完成 $n 次评估, license 尝试 ${tries:-0} 次"
+    fi
   fi
 done < <(sed -n "1,${NNODES}p" "$MANIFEST")
 

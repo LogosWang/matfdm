@@ -15,7 +15,7 @@ RUNS=$SCRATCH/matfdm_runs           # 数据根
 
 # --- 扫描: 每个值一个运行, 一个运行占一个节点 ---
 SWEEP_KEY=front_thick               # 要扫的字段 (overrides.xxx 可扫物理参数)
-SWEEP_VALUES="0.1 0.2 0.3 0.4 0.5 \
+SWEEP_VALUES="0.0001 0.001 0.005 0.01 0.02 0.05 0.1 0.2 0.3 0.4 0.5 \
               0.6 0.7 0.8 0.9 1.0"
 PREFIX=ft                           # 运行目录名前缀 -> ft1e-1, ft5e-1, ft1e0 ...
 
@@ -34,7 +34,15 @@ SEED=20260804                       # CMA 种子
 # --- 物理参数覆盖 (盖在 build_p_decouple 之上, 不用改源码) ---
 OVERRIDES='{"eff": 0.2}'            # 例: {"eff":0.2, "Dgb":1e-3, "rOM":0.2529}
 
-# --- MATLAB license 席位 (NERSC 全校共享) ---
+# --- 引擎 ---
+# mcr    默认。跑编译好的 standalone, 占用 0 个 MATLAB / 0 个 PCT 席位。
+#        NERSC 全校只有 16 个 MATLAB / 4 个 PCT, 文档要求多节点作业用编译版。
+#        改了 .m 源码要先在计算节点跑 build_standalone.sh。
+# matlab 回退路线, 老的 parpool 版, 要抢 license, 只在调试时用。
+ENGINE=mcr
+BUILD_DIR=${MATFDM_BUILD:-$SCRATCH/matfdm_build}/CURRENT
+
+# --- 以下几个只有 ENGINE=matlab 的回退路线才用得上 ---
 # 抢不到不会放弃, 一路退避重试到**墙钟前 5 分钟**为止 —— 什么时候收手只由
 # WALLTIME 决定, 下面几个参数都不是放弃时限。
 LIC_SEATS=2                         # 同时允许几个节点在"试签出" (0 = 不设闸)
@@ -50,6 +58,21 @@ export MATFDM_CODE="$CODE" MATFDM_RUNS="$RUNS" MATFDM_ACCOUNT="$ACCOUNT" \
        MATFDM_WALLTIME="$WALLTIME"
 export MATFDM_LIC_SEATS="$LIC_SEATS" MATFDM_LIC_BACKOFF="$LIC_BACKOFF" \
        MATFDM_LIC_BACKOFF_MAX="$LIC_BACKOFF_MAX" MATFDM_LIC_HOLD="$LIC_HOLD"
+export MATFDM_ENGINE="$ENGINE" MATFDM_BUILD_DIR="$BUILD_DIR"
+
+# 编译产物必须先有 —— 排了 20 轮作业才发现没编, 白等一整天
+if [[ "$ENGINE" == mcr ]]; then
+  [[ -x "$BUILD_DIR/run_matfdm_run.sh" ]] || {
+    echo "没有编译产物: $BUILD_DIR"
+    echo "先在计算节点上编 (不要在 login 节点):"
+    echo "  salloc -N 1 -q interactive -C cpu -t 00:30:00 -A $ACCOUNT"
+    echo "  bash $CODE/calibration/ctl/build_standalone.sh"
+    exit 1; }
+  BUILD_COMMIT=$(cat "$BUILD_DIR/BUILD_COMMIT" 2>/dev/null || echo unknown)
+  HEAD_COMMIT=$(git -C "$CODE" rev-parse --short HEAD 2>/dev/null || echo nogit)
+  [[ "$BUILD_COMMIT" == "$HEAD_COMMIT"* ]] || \
+    echo "注意: 编译产物是 $BUILD_COMMIT, 当前代码是 $HEAD_COMMIT —— 改过 .m 就要重编"
+fi
 MF="bash $CODE/calibration/ctl/matfdm.sh"
 MANIFEST="$RUNS/runs_${PREFIX}.txt"
 
@@ -59,7 +82,11 @@ echo " 运行前缀  : $PREFIX      数据根: $RUNS"
 echo " 每代       : $POPULATION cases × $(echo "$DOSES" | tr -cd ',' | wc -c | awk '{print $1+1}') doses = $WORKERS legs"
 echo " 作业       : $NJOBS 轮 × $WALLTIME, 账号 $ACCOUNT, QOS $QOS"
 echo " 覆盖       : $OVERRIDES"
-echo " license   : 入闸 $LIC_SEATS 席, 抢不到退避 ${LIC_BACKOFF}-${LIC_BACKOFF_MAX}s 重试到墙钟"
+if [[ "$ENGINE" == mcr ]]; then
+  echo " 引擎       : MCR standalone (0 个 license 席位)  $BUILD_DIR"
+else
+  echo " 引擎       : matlab 回退路线, 入闸 $LIC_SEATS 席, 退避重试到墙钟"
+fi
 echo "=========================================================="
 
 # 1) 算运行名 + 建目录 + 写 config.json
@@ -94,7 +121,8 @@ for ((i=0;i<NJOBS;i++)); do
         -C cpu -J "mn_${PREFIX}" -o "$RUNS/mn_${PREFIX}-%j.out" \
         ${dep:+--dependency=afterany:$dep} \
         --export=ALL,MATFDM_CODE="$CODE",MATFDM_MANIFEST="$MANIFEST",\
-MATFDM_RUNS="$RUNS",MATFDM_LIC_SEATS="$LIC_SEATS",MATFDM_LIC_BACKOFF="$LIC_BACKOFF",\
+MATFDM_RUNS="$RUNS",MATFDM_ENGINE="$ENGINE",MATFDM_BUILD_DIR="$BUILD_DIR",\
+MATFDM_LIC_SEATS="$LIC_SEATS",MATFDM_LIC_BACKOFF="$LIC_BACKOFF",\
 MATFDM_LIC_BACKOFF_MAX="$LIC_BACKOFF_MAX",MATFDM_LIC_HOLD="$LIC_HOLD" \
         "$CODE/calibration/ctl/multi_node.sh")
   echo "  作业 $jid  (${N} 节点, ${WALLTIME})${dep:+  等 $dep}"

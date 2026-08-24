@@ -8,8 +8,13 @@ status = 'error:unset';
 logf = '';
 try
     maxNumCompThreads(1);                       % 防止 90 腿互相抢线程
-    addpath(repo);
-    cd(repo);
+    if ~isdeployed
+        % 编译版里 addpath 是禁止的 (MATLAB:mpath:PathAlterationNotSupported),
+        % 代码已经全部打进 CTF, 也不需要加路径。全流程没有依赖 CWD 的相对路径
+        % (都走 run_root()), 所以 cd 一并跳过。
+        addpath(repo);
+        cd(repo);
+    end
     % parfeval worker 不继承客户端环境变量, 必须显式设
     setenv('MATFDM_RUN', rundir);
     % worker 会被复用跑多条腿: 清掉上一条腿可能留下的 persistent 状态

@@ -8,9 +8,13 @@
 # 节点之间零通信: 各自的 MATFDM_RUN 不同, 结果/断点/CMA 状态互不可见。
 # 单个节点崩了不影响其他节点 (srun --kill-on-bad-exit=0, 且本脚本永远 exit 0)。
 #
-# license 席位: MATLAB 抢不到 license 时**不再当场退出** —— 那会让作业秒退,
-# 把 afterany 接力链瞬间烧光 (2026-08-23 事故)。改为入闸令牌 + 指数退避重试,
-# 一直抢到墙钟快到为止, 详见 lic_seat.sh。
+# 引擎 (MATFDM_ENGINE):
+#   mcr    默认。跑编译好的 standalone, 编排交给 run_generation.py。
+#          NERSC 全校只有 16 个 MATLAB / 4 个 PCT 席位, 文档要求多节点作业用编译版;
+#          MCR 不连 license server, 这条路占用 0 席位, 也就不需要抢席位。
+#   matlab 回退路线。老的 matlab -batch run_generation + parpool, 要抢 license,
+#          抢不到就退避重试 (lic_seat.sh), 绝不秒退 —— 秒退会把 afterany 接力链
+#          瞬间烧光 (2026-08-23 事故: 13 个作业 20 分钟全烧完)。
 
 set -uo pipefail
 
@@ -33,6 +37,8 @@ export MATFDM_RUN="$RUN"
 export CALIB_REPO_DIR="$CODE"
 mkdir -p "$RUN/calibration/logs"
 
+ENGINE=${MATFDM_ENGINE:-mcr}
+# 席位库只有回退路线才用得上; source 它没有副作用
 # shellcheck source=lic_seat.sh
 source "$CODE/calibration/ctl/lic_seat.sh"
 
@@ -49,7 +55,11 @@ GIVEUP=$(( DEADLINE - ${MATFDM_LIC_GIVEUP:-300} ))   # 留点余量收尾, 不�
   echo "=== rank $RANK  node $(hostname)  run=$ID"
   echo "=== dir=$RUN"
   echo "=== $(date)"
-  echo "=== 席位: 入闸 $LIC_SEATS 个, 退避 ${LIC_BACKOFF}-${LIC_BACKOFF_MAX}s, 抢到 $(date -d "@$GIVEUP" '+%F %T') 为止"
+  if [[ "$ENGINE" == mcr ]]; then
+    echo "=== 引擎: MCR standalone (0 个 license 席位)  build=${MATFDM_BUILD_COMMIT:-?}"
+  else
+    echo "=== 引擎: matlab (回退路线)  入闸 $LIC_SEATS 席, 抢到 $(date -d "@$GIVEUP" '+%F %T') 为止"
+  fi
 
   if [[ -e "$STOPF" ]]; then
     echo "STOP 存在, 本节点退出"; exit 0
@@ -85,9 +95,18 @@ PYEOF
 
   cd "$CODE"
 
-  # ================= 抢席位并跑 MATLAB (共用 lic_seat.sh 的循环) =================
-  trap 'lic_seat_release' EXIT
-  lic_run_matlab "$CODE" "$RUN" "$STOPF" "$GIVEUP" "r$RANK"
+  # ================= 跑一代一代的标定 =================
+  if [[ "$ENGINE" == mcr ]]; then
+    # 编译版: 0 个 license 席位, 直接开跑, 没有可抢的东西
+    export MATFDM_DEADLINE
+    "$CALIB_PYTHON" "$CODE/calibration/ctl/run_generation.py"
+    rc=$?
+    echo "=== rank $RANK run_generation.py 退出码 $rc  $(date)"
+  else
+    # 回退路线: 抢 MATLAB license 席位 (共用 lic_seat.sh 的循环)
+    trap 'lic_seat_release' EXIT
+    lic_run_matlab "$CODE" "$RUN" "$STOPF" "$GIVEUP" "r$RANK"
+  fi
 
 } >> "$LOG" 2>&1
 
