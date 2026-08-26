@@ -77,6 +77,7 @@ print(f'export CALIB_ENDPOINT_TOL={g("endpoint_tol",3)}')
 print(f'export CALIB_MIDDLE_MAX={g("middle_max",70)}')
 print(f'export CALIB_ENDPOINT_BAND={g("endpoint_band",5)}')
 print(f'export CALIB_MAX_ATTEMPTS={g("max_attempts",3)}')
+print(f'export CALIB_LEG_TIMEOUT={g("leg_timeout",0)}')
 print(f'export CALIB_SEED={g("seed",20260804)}')
 PYEOF
 )"

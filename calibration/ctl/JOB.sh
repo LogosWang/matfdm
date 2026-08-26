@@ -34,6 +34,10 @@ MIDDLE_MAX=70                       # 0.5 dpa 软带上限 nm
 ENDPOINT_BAND=5                     # 端点硬约束 nm (超出判不可行)
 ENDPOINT_TOL=3                      # 成功判据端点容差 nm
 MAX_ATTEMPTS=3                      # 腿失败几次熔断该 case
+LEG_TIMEOUT=10800                   # 单腿累计计算时限 s (0=不限)。超时即判这组乘子
+                                    # 不收敛, 整个 case 丢弃 —— 腿慢本身就是走到了
+                                    # 刚性区域的信号, 磨下去只会拖住整代。
+                                    # 跨作业累加: 被墙钟打断后续算, 时间接着记。
 KEEP_TRAJ=false                     # 是否存 *_timeseries.mat (每腿 ~7 MB)
 SEED=20260804                       # CMA 种子
 
@@ -94,6 +98,7 @@ echo " 每代       : $POPULATION cases × $(echo "$DOSES" | tr -cd ',' | wc -c 
 echo " 作业       : $NJOBS 轮 × $WALLTIME, 账号 $ACCOUNT, QOS $QOS"
 echo " 覆盖       : $OVERRIDES"
 echo " 成分靶值   : $COMPOSITION_TARGETS  (口径 $COMPOSITION_BASIS, 容差 ±$COMPOSITION_TOL at%)"
+echo " 单腿时限   : $(( LEG_TIMEOUT / 60 )) min 累计 (超时判不收敛, 丢弃整个 case)"
 if [[ "$ENGINE" == mcr ]]; then
   echo " 引擎       : MCR standalone (0 个 license 席位)  $BUILD_DIR"
 else
@@ -117,7 +122,7 @@ while read -r id v; do
       "middle_max=$MIDDLE_MAX" "endpoint_band=$ENDPOINT_BAND" \
       "endpoint_tol=$ENDPOINT_TOL" "max_attempts=$MAX_ATTEMPTS" \
       "composition_targets=$COMPOSITION_TARGETS" \
-      "composition_tol=$COMPOSITION_TOL" \
+      "composition_tol=$COMPOSITION_TOL" "leg_timeout=$LEG_TIMEOUT" \
       "keep_traj=$KEEP_TRAJ" "seed=$SEED" \
       "overrides=$OVERRIDES" > /dev/null
   echo "  [run] $id  ($SWEEP_KEY=$v)"

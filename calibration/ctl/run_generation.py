@@ -17,6 +17,7 @@ CMA/目标函数仍然全在 python (gen_tool.py / propose_cmaes.py), 编译不�
   MATFDM_RUN         运行目录 (数据根)
   CALIB_PYTHON       python3
   CALIB_POPULATION / CALIB_WORKERS / CALIB_ENDPOINT_TOL / CALIB_MAX_ATTEMPTS
+  CALIB_LEG_TIMEOUT  单腿累计计算时限 (秒, 0=不限); 超时即判该 case 不收敛并丢弃
   CALIB_WALL_BUDGET  本作业可用秒数 (不设 = 不自我限时, 跑到 SLURM 杀)
   CALIB_GEN_RESERVE  开新一代所需的最少剩余秒数 (默认 5400)
   MATFDM_DEADLINE    作业截止 epoch 秒 (multi_node.sh 从 scontrol 算好传入)
@@ -119,6 +120,21 @@ def spawn_leg(run: Path, tag: str, dose, mult, budget) -> subprocess.Popen:
     return subprocess.Popen(cmd, stdout=log.open("w"), stderr=subprocess.STDOUT)
 
 
+def kill_proc(p: subprocess.Popen, grace: float = 10.0):
+    """先 SIGTERM 给 MATLAB Runtime 一点收尾时间, 不走再 SIGKILL。"""
+    if p.poll() is not None:
+        return
+    try:
+        p.terminate()
+        p.wait(timeout=grace)
+    except (subprocess.TimeoutExpired, OSError):
+        try:
+            p.kill()
+            p.wait(timeout=grace)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+
+
 def run_metrics(run: Path, tag: str) -> bool:
     p = subprocess.run([str(MCR), "metrics", str(run), tag],
                        capture_output=True, text=True)
@@ -126,6 +142,32 @@ def run_metrics(run: Path, tag: str) -> bool:
 
 
 # ------------------------------------------------------------------ 熔断计数
+def load_json(f: Path) -> dict:
+    try:
+        return json.loads(f.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_json(f: Path, d: dict):
+    tmp = f.with_suffix(f.suffix + ".tmp")
+    tmp.write_text(json.dumps(d))
+    tmp.replace(f)
+
+
+def dur(sec: float) -> str:
+    """秒数的可读写法 —— 时限可能是几十秒也可能是几小时。"""
+    if sec < 90:
+        return f"{sec:.0f}s"
+    if sec < 5400:
+        return f"{sec / 60:.0f}min"
+    return f"{sec / 3600:.1f}h"
+
+
+def leg_key(tag: str, dose) -> str:
+    return f"{tag}/dose{dose:g}".replace("/", "_").replace(".", "_")
+
+
 def load_attempts(f: Path) -> dict:
     try:
         return json.loads(f.read_text())
@@ -156,6 +198,14 @@ def main() -> int:
     nleg = int(envnum("CALIB_WORKERS", cfg.get("workers", 120)))
     tol = envnum("CALIB_ENDPOINT_TOL", cfg.get("endpoint_tol", 3))
     max_attempts = int(envnum("CALIB_MAX_ATTEMPTS", cfg.get("max_attempts", 3)))
+    # 单腿累计计算时限 (秒, 0/缺省 = 不限)。跨作业累加 —— 一条腿被墙钟打断、
+    # 下个作业从断点续算, 时间是接着算的, 否则慢腿每轮都拿到一个新时限,
+    # 永远耗不完, 只会一代一代拖下去。
+    #
+    # 为什么要有这个: 腿慢本身就说明这组乘子走到了刚性/难收敛的区域 —— 卡住的
+    # 是单个时间窗内部的 ODE 求解, MATLAB 侧在窗与窗之间做检查根本轮不到,
+    # 只能由这里从外面计时并杀掉, 然后把整个 case 判死交给 CMA 继续推进。
+    leg_timeout = envnum("CALIB_LEG_TIMEOUT", cfg.get("leg_timeout", 0))
     doses = list(cfg.get("doses", [0, 0.5, 3]))
 
     budget = envnum("CALIB_WALL_BUDGET", float("inf"))
@@ -169,6 +219,7 @@ def main() -> int:
         os.environ.get("MATFDM_BUILD_COMMIT", "?"))
 
     attempts_f = calib / "attempts.json"
+    runtime_f = calib / "leg_runtime.json"
 
     while True:
         if (calib / "DONE").is_file() or (calib / "STOP").is_file():
@@ -213,9 +264,25 @@ def main() -> int:
         say("[gen %02d] 待跑 %d 条 (已完成 %d 条直接跳过)",
             batch, len(pending), len(doses) * len(cases) - len(pending))
 
-        procs, meta, queue = {}, {}, list(pending)
+        procs, meta, started, queue = {}, {}, {}, list(pending)
         done_n, t_gen = 0, time.time()
         attempts = load_attempts(attempts_f)
+        spent = load_json(runtime_f)          # 每条腿的累计计算秒数 (跨作业)
+        timed_out = set()                     # 本代因超时被判死的 case
+
+        def reap(pid, st, extra=""):
+            """回收一个已退出的进程, 记账并打印。"""
+            nonlocal done_n
+            p = procs.pop(pid)
+            tag, d = meta.pop(pid)
+            k = leg_key(tag, d)
+            spent[k] = spent.get(k, 0.0) + (time.time() - started.pop(pid))
+            save_json(runtime_f, spent)
+            done_n += 1
+            say("[leg] %-24s %-10s (%d/%d, 本代 %s, 该腿累计 %s)%s",
+                f"{tag}/dose{d:g}", st, done_n, len(pending),
+                dur(time.time() - t_gen), dur(spent[k]), extra)
+            return tag, d, k
 
         while queue or procs:
             while queue and len(procs) < nleg:
@@ -223,38 +290,61 @@ def main() -> int:
                 p = spawn_leg(run, tag, d, mult, leg_budget)
                 procs[p.pid] = p
                 meta[p.pid] = (tag, d)
+                started[p.pid] = time.time()
             if not procs:
                 break
             time.sleep(5)
+
+            # --- 超时: 累计(历史 + 本次已跑) 超过 leg_timeout 就杀掉判死 ---
+            if leg_timeout > 0:
+                now = time.time()
+                for pid in [q for q, p in procs.items() if p.poll() is None]:
+                    tag, d = meta[pid]
+                    k = leg_key(tag, d)
+                    cum = spent.get(k, 0.0) + (now - started[pid])
+                    if cum <= leg_timeout:
+                        continue
+                    say("[timeout] %s/dose%g 累计 %s > 上限 %s, "
+                        "判定这组乘子不收敛, 丢弃整个 case",
+                        tag, d, dur(cum), dur(leg_timeout))
+                    kill_proc(procs[pid])
+                    timed_out.add(tag)
+                # 同一个 case 的其他腿再算也没意义 (整个 case 要被惩罚), 一并杀掉
+                # 腾出位置给下一批
+                for pid in [q for q, p in procs.items() if p.poll() is None]:
+                    if meta[pid][0] in timed_out:
+                        kill_proc(procs[pid])
+                queue = [q for q in queue if q[0] not in timed_out]
+
             for pid in [q for q, p in procs.items() if p.poll() is not None]:
-                p = procs.pop(pid)
-                tag, d = meta.pop(pid)
-                done_n += 1
-                if p.returncode == 0:
-                    st = "complete"
-                elif p.returncode == 10:
-                    st = "wallclock"
+                rc = procs[pid].returncode
+                tag0 = meta[pid][0]
+                if tag0 in timed_out:
+                    reap(pid, "timeout", "  <- 已丢弃")
+                    continue
+                if rc == 0:
+                    reap(pid, "complete")
+                elif rc == 10:
+                    reap(pid, "wallclock")
                 else:
-                    st = f"error(rc={p.returncode})"
-                    k = f"{tag}/dose{d:g}".replace("/", "_").replace(".", "_")
+                    _, _, k = reap(pid, f"error(rc={rc})")
                     attempts[k] = attempts.get(k, 0) + 1
                     save_attempts(attempts_f, attempts)
-                say("[leg] %-24s %-10s (%d/%d, 本代 %.0f min)",
-                    f"{tag}/dose{d:g}", st, done_n, len(pending),
-                    (time.time() - t_gen) / 60)
 
-        # ---- 熔断 ----
-        dead = []
+        # ---- 熔断: 反复失败的 + 算太久不收敛的, 都写惩罚指标让 CMA 继续走 ----
+        dead = list(timed_out)
         for c in cases:
             tag = c["case_tag"]
+            if tag in timed_out:
+                continue
             for d in doses:
-                k = f"{tag}/dose{d:g}".replace("/", "_").replace(".", "_")
-                if not leg_is_complete(run, tag, d) and attempts.get(k, 0) >= max_attempts:
+                if not leg_is_complete(run, tag, d) and attempts.get(leg_key(tag, d), 0) >= max_attempts:
                     dead.append(tag)
                     break
         for tag in dict.fromkeys(dead):
             gen_tool(run, cfg, "penalize", batch, "--tag", tag)
-            say("[dead] %s 连续失败 >=%d 次, 已写惩罚指标", tag, max_attempts)
+            why = "算太久判定不收敛" if tag in timed_out else f"连续失败 >={max_attempts} 次"
+            say("[dead] %s %s, 已写惩罚指标", tag, why)
 
         # ---- 完整性: 有腿没跑完且未熔断 = 墙钟耗尽, 交给续投 ----
         incomplete = sum(1 for c in cases if c["case_tag"] not in dead

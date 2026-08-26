@@ -182,6 +182,7 @@ MATFDM_RUN=$SCRATCH/matfdm_runs/ft5e-1 CALIB_POPULATION=40 \
 | `endpoint_band` | 5 | 端点硬约束 nm (超出即不可行) |
 | `endpoint_tol` | 3 | 成功判据端点容差 nm |
 | `max_attempts` | 3 | 腿失败几次后熔断该 case |
+| `leg_timeout` | 0（不限）| 单腿**累计**计算时限 s；超时即判这组乘子不收敛，丢弃整个 case |
 | `keep_traj` | false | 是否存 `*_timeseries.mat` (每腿 ~7 MB) |
 | `seed` | 20260804 | CMA 种子 (多链要给不同值) |
 | `composition_targets` | 由 csv 现算 | 实验成分靶值 `[[Cr%,Fe%], ...]`，每个剂量一对 |
@@ -281,6 +282,20 @@ touch $SCRATCH/matfdm_runs/ft*/calibration/STOP     # 全停
 squeue --me -h -o "%i %j" | awk '$2 ~ /^mn_ft/ {print $1}' | xargs -r scancel
 ```
 
+### 算不完的 case 怎么处理
+
+腿卡住时,卡的是**单个时间窗内部的 ODE 求解** —— MATLAB 在窗与窗之间做的检查根本
+轮不到,所以时限只能由编排器从外面计时并杀进程。`leg_timeout` 就是干这个的:
+
+- 计时是**累计的**,记在 `<run>/calibration/leg_runtime.json` 里,跨作业累加。
+  否则被墙钟打断后续算,每轮都拿到一个新时限,慢腿永远耗不完。
+- 一条腿超时 → 杀掉,**整个 case 判死**(三条腿是一组,一条不收敛整组就没意义),
+  同 case 还在跑的兄弟腿一并杀掉腾位置。
+- 判死 = 写惩罚指标,CMA 把它排在末位后正常推进,不会卡住这一代。
+- 日志里能看到 `[timeout] ... 判定这组乘子不收敛` 和 `[dead] ... 算太久`。
+
+设成 0 就是不限时(旧行为)。
+
 **断点续算是自动的**:腿完成的判据是 `_COMPLETE` 标记 + 四个非空 `*_final.csv`,
 已完成的腿下次直接跳过,未完成的从 `checkpoint/` 接着算。作业被杀、被抢占、
 墙钟到点都不会丢进度。
@@ -372,6 +387,7 @@ $SCRATCH/matfdm_build/CURRENT/      编译产物
 | `CMA-ES 提议失败` | 看日志里紧跟的 python 报错;缺指标会自动 `penalize-missing` 重试 |
 | `与 POPULATION 不符` | `config.json` 的 `population` 和磁盘上该代的 case 数对不上,人工确认 |
 | 某腿反复失败 | 3 次后熔断,不卡整代 |
+| 某腿算不完、一代迟迟不推进 | 设 `leg_timeout`（如 10800 = 3 h）。腿慢本身就是走到刚性区域的信号,超时即判该 case 不收敛并丢弃,CMA 拿到惩罚样本继续走 |
 | `dose3` 的腿迟迟不返回 | 正常。辐照段**不存断点也不看墙钟预算**(源码里的设计决定:中断则整段重跑),参考耗时约 5200 s;墙钟预算只在氧化段生效。所以 `WALLTIME` 不要小到装不下一个辐照段 |
 | 内存吃紧 | 单腿约 1.8 GB;`workers` × 1.8 GB 要留余量(120 腿实测峰值 215 GB / 503 GB) |
 | MCR 启动慢 / Lustre 卡 | `MCR_CACHE_ROOT` 必须在节点本地 `/tmp`,`multi_node.sh` 已设好 |
