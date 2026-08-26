@@ -70,9 +70,13 @@ echo "code    : $CODE"
 echo "python  : $CALIB_PYTHON ($("$CALIB_PYTHON" -c 'import sys;print(sys.version.split()[0])'))"
 echo "start   : $(date)"
 if (( MATFDM_DEADLINE > 0 )); then
-  echo "deadline: $(date -d "@$MATFDM_DEADLINE" '+%F %T')  (节点抢 license 抢到这个点)"
+  if [[ "$ENGINE" == mcr ]]; then
+    echo "deadline: $(date -d "@$MATFDM_DEADLINE" '+%F %T')  (腿据此定墙钟预算, 到点存断点)"
+  else
+    echo "deadline: $(date -d "@$MATFDM_DEADLINE" '+%F %T')  (节点抢 license 抢到这个点)"
+  fi
 else
-  echo "deadline: 未知 (scontrol 没给 EndTime), 节点按不限时重试"
+  echo "deadline: 未知 (scontrol 没给 EndTime), 腿按不限时跑到被 SLURM 杀"
 fi
 if [[ "$ENGINE" == mcr ]]; then
   echo "engine  : MCR standalone  build=$MATFDM_BUILD_COMMIT  ($MATFDM_BUILD_DIR)"
