@@ -41,6 +41,7 @@ cfg = json.loads(f.read_text()) if f.exists() else {}
 for k, v in dict(run_id=os.environ['MF_ID'], doses=[0, 0.5, 3], targets=[40, 60, 100],
                  front_thick=1.0, population=40, workers=120, middle_max=70,
                  endpoint_band=5, endpoint_tol=3, max_attempts=3,
+                 composition_targets=[], composition_tol=5,
                  keep_traj=False, seed=20260804, overrides={}).items():
     cfg.setdefault(k, v)
 for kv in sys.argv[1:]:

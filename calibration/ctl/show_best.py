@@ -74,6 +74,16 @@ def metric_rows(tag: str):
         return None
 
 
+def load_cfg() -> dict:
+    f = RUN / "config.json"
+    if not f.is_file():
+        return {}
+    try:
+        return json.loads(f.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--top", type=int, default=10)
@@ -82,6 +92,11 @@ def main() -> int:
 
     pc = load_pc()
     base = load_base()
+    cfg = load_cfg()
+    tg = cfg.get("composition_targets") or None       # 实验成分靶值 [[Cr%,Fe%],...]
+    ctol = float(cfg.get("composition_tol", 5))
+    ftg = cfg.get("targets") or [40, 60, 100]         # 前沿靶深度, 别写死
+    doses = cfg.get("doses") or [0, 0.5, 3]
     if not STATE.is_file():           # 一代都没跑完的运行 (比如全程没抢到 license)
         print(f"还没有 state.json ({STATE}), 这个运行一代都没跑完")
         return 1
@@ -105,9 +120,22 @@ def main() -> int:
     recs.sort(key=lambda t: (0 if t[0]["feasible"] else 1, t[0]["fitness"]))
     top = recs[:args.top]
 
-    print(f"当前判据: 0.5dpa 软带 [60, {pc.MIDDLE_MAX:g}] nm, "
-          f"端点硬约束 ±{pc.ENDPOINT_BAND:g} nm, "
-          f"可行 {sum(1 for r, _, _ in recs if r['feasible'])}/{len(recs)}\n")
+    print(f"前沿判据: 靶 {'/'.join(f'{t:g}' for t in ftg)} nm, "
+          f"0.5dpa 软带 [60, {pc.MIDDLE_MAX:g}] nm, "
+          f"端点硬约束 ±{pc.ENDPOINT_BAND:g} nm")
+    if tg:
+        print("成分判据: 实验 at% (口径 Cr+Fe+Ni, SiO2 溶解不计), 命中容差 "
+              f"±{ctol:g} at%")
+        print("          靶值 " + "  ".join(
+            f"{d:g}dpa Cr {c:.1f}/Fe {f:.1f}" for (c, f), d in zip(tg, doses)))
+        # 模型不产 Ni, Cr%+Fe% 恒为 100, 而实验靶值之和小于 100 —— 差额就是地板
+        floor = [100.0 - c - f for c, f in tg]
+        if max(floor) > 0.05:
+            print("          注: 模型 Ni≡0, 成分残差有地板 "
+                  + "/".join(f"{x:.2f}" for x in floor) + " at% (缺的是 Ni)")
+    else:
+        print("成分判据: 未配置 composition_targets, 本次只标前沿")
+    print(f"可行 {sum(1 for r, _, _ in recs if r['feasible'])}/{len(recs)}\n")
 
     for rank, (r, case, data) in enumerate(top, 1):
         front = [float(x["front_nm"]) for x in data]
@@ -117,11 +145,24 @@ def main() -> int:
         print(f"#{rank}  {case['case_tag']}   fitness={r['fitness']:.4f}  "
               f"feasible={r['feasible']}")
         print(f"    前沿 nm   : {front[0]:7.2f} {front[1]:7.2f} {front[2]:7.2f}"
-              f"    (靶 40 / 60 / 100)")
-        print(f"    残差 nm   : {front[0]-40:+7.2f} {front[1]-60:+7.2f} {front[2]-100:+7.2f}")
+              f"    (靶 {' / '.join(f'{t:g}' for t in ftg)})")
+        print("    残差 nm   : "
+              + " ".join(f"{front[i]-ftg[i]:+7.2f}" for i in range(len(front))))
         for i, dose in enumerate((0, 0.5, 3)):
-            print(f"    {dose:>4} dpa  : Cr {pct[i][0]:5.1f}%  Fe {pct[i][1]:5.1f}%  "
-                  f"Si {pct[i][2]:5.1f}%   Cr库存 {inv[i]:.4g}")
+            line = (f"    {dose:>4} dpa  : Cr {pct[i][0]:5.1f}%  Fe {pct[i][1]:5.1f}%  "
+                    f"Si {pct[i][2]:5.1f}%   Cr库存 {inv[i]:.4g}")
+            if tg and i < len(tg):
+                line += (f"   靶 {tg[i][0]:.1f}/{tg[i][1]:.1f}"
+                         f"  Δ {pct[i][0]-tg[i][0]:+.1f}/{pct[i][1]-tg[i][1]:+.1f}")
+            print(line)
+        if tg:
+            dcr = [pct[i][0] - tg[i][0] for i in range(min(len(pct), len(tg)))]
+            dfe = [pct[i][1] - tg[i][1] for i in range(min(len(pct), len(tg)))]
+            worst = max(max(abs(x) for x in dcr), max(abs(x) for x in dfe))
+            print(f"    成分残差  : ΔCr {' '.join(f'{x:+6.2f}' for x in dcr)}"
+                  f"   ΔFe {' '.join(f'{x:+6.2f}' for x in dfe)}"
+                  f"   最大 |Δ| {worst:.2f} at%"
+                  f"  {'命中' if worst <= ctol else '超差'}(±{ctol:g})")
         print(f"    {'参数':<10s}{'乘子':>10s}{'基线':>12s}{'绝对值':>14s}")
         mult = case["mult"]
         vals = {}
@@ -140,14 +181,26 @@ def main() -> int:
     if args.csv:
         with open(args.csv, "w", newline="") as stream:
             w = csv.writer(stream)
+            dl = [f"{d:g}" for d in doses]
             w.writerow(["rank", "case_tag", "fitness", "feasible",
                         "front0", "front05", "front3"]
+                       + [f"Cr_pct_{d}" for d in dl]
+                       + [f"Fe_pct_{d}" for d in dl]
+                       + ([f"dCr_{d}" for d in dl] + [f"dFe_{d}" for d in dl]
+                          + ["comp_max_abs_dev"] if tg else [])
                        + [f"mult_{n}" for n in NAMES]
                        + [f"val_{n}" for n in NAMES])
             for rank, (r, case, data) in enumerate(top, 1):
                 front = [float(x["front_nm"]) for x in data]
+                cr = [float(x["Cr_atom_pct"]) for x in data]
+                fe = [float(x["Fe_atom_pct"]) for x in data]
+                comp = []
+                if tg:
+                    dcr = [cr[i] - tg[i][0] for i in range(min(len(cr), len(tg)))]
+                    dfe = [fe[i] - tg[i][1] for i in range(min(len(fe), len(tg)))]
+                    comp = dcr + dfe + [max(max(map(abs, dcr)), max(map(abs, dfe)))]
                 w.writerow([rank, case["case_tag"], r["fitness"], int(r["feasible"])]
-                           + front + list(case["mult"])
+                           + front + cr + fe + comp + list(case["mult"])
                            + [base.get(n, float('nan')) * m
                               for n, m in zip(NAMES, case["mult"])])
         print(f"已另存 {args.csv}")

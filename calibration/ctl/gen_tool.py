@@ -33,6 +33,22 @@ POPULATION = int(os.environ.get("CALIB_POPULATION", "30"))
 MIDDLE_MAX = float(os.environ.get("CALIB_MIDDLE_MAX", "70"))   # 0.5 dpa 达标上限 nm
 
 
+def _cfg(key, default):
+    """<run>/config.json 里的字段, 读不到就用默认值。"""
+    try:
+        import json
+        return json.loads((RUN / "config.json").read_text()).get(key, default)
+    except (OSError, ValueError):
+        return default
+
+
+# 实验成分靶值 [[Cr%, Fe%], ...] 与命中容差 (at%)。由 comp_targets.py 从
+# Composition_Dose.csv 换算, 口径 = Cr+Fe+Ni, 详见 extract_calibration_metrics。
+COMPOSITION_TARGETS = _cfg("composition_targets", None)
+COMPOSITION_TOL = float(os.environ.get("CALIB_COMPOSITION_TOL",
+                                       _cfg("composition_tol", 5)))
+
+
 NEEDED = ("dose", "front_nm", "Cr_atom_inventory",
           "Cr_atom_pct", "Fe_atom_pct", "Si_atom_pct")
 
@@ -74,13 +90,20 @@ def is_success(tag: str, tol: float) -> bool:
     inv = [float(r["Cr_atom_inventory"]) for r in data]
     cr = [float(r["Cr_atom_pct"]) for r in data]
     fe = [float(r["Fe_atom_pct"]) for r in data]
-    si = [float(r["Si_atom_pct"]) for r in data]
-    return (abs(front[0] - 40.0) <= tol
-            and 60.0 <= front[1] <= MIDDLE_MAX
-            and abs(front[2] - 100.0) <= tol
-            and all(c > max(f, s) for c, f, s in zip(cr, fe, si))
-            and cr[2] - fe[2] <= 15.0
-            and inv[0] > inv[1] > inv[2])
+    ok_front = (abs(front[0] - 40.0) <= tol
+                and 60.0 <= front[1] <= MIDDLE_MAX
+                and abs(front[2] - 100.0) <= tol
+                and inv[0] > inv[1] > inv[2])
+    if not ok_front:
+        return False
+    # 成分: 与实测 at% 逐点比 (旧版是 Cr>Fe、Cr>Si、Cr-Fe<=15 这几条定性代理,
+    # 有了实验值就不需要了)。没配靶值的旧运行目录只判前沿, 保持向后兼容。
+    if not COMPOSITION_TARGETS:
+        return True
+    for i, (tcr, tfe) in enumerate(COMPOSITION_TARGETS[:len(cr)]):
+        if abs(cr[i] - tcr) > COMPOSITION_TOL or abs(fe[i] - tfe) > COMPOSITION_TOL:
+            return False
+    return True
 
 
 def cmd_propose(batch: int) -> int:
@@ -126,13 +149,14 @@ def cmd_report(batch: int) -> int:
             continue
         front = " ".join(f"{float(r['front_nm']):6.1f}" for r in data)
         cr = " ".join(f"{float(r['Cr_atom_pct']):5.1f}" for r in data)
-        print(f"{tag}: front[{front}]  Cr%[{cr}]")
+        fe = " ".join(f"{float(r['Fe_atom_pct']):5.1f}" for r in data)
+        print(f"{tag}: front[{front}]  Cr%[{cr}]  Fe%[{fe}]")
     return 0
 
 
 HEADER = ("dose,front_nm,residual_nm,Cr2O3_int,Fe3O4_int,FeCr2O4_int,SiO2_int,"
-          "Cr_atom_inventory,Fe_atom_inventory,Si_atom_inventory,"
-          "Cr_atom_pct,Fe_atom_pct,Si_atom_pct,Cr_atom_major")
+          "Cr_atom_inventory,Fe_atom_inventory,Si_atom_inventory,Ni_atom_inventory,"
+          "Cr_atom_pct,Fe_atom_pct,Si_atom_pct,Ni_atom_pct,Cr_atom_major")
 TARGETS = (40.0, 60.0, 100.0)
 
 
@@ -148,9 +172,11 @@ def cmd_penalize(tag: str) -> int:
         stream.write(HEADER + "\n")
         for i, (dose, target) in enumerate(zip((0, 0.5, 3), TARGETS)):
             inventory = 1.0 + i          # 递增 => 违反 Cr 库存单调下降
+            # 前沿全 0 (残差最大) + 库存递增 (违反唯一的硬约束) + 成分离靶极远,
+            # 于是排在所有可行样本之后, CMA 正常 tell 后继续推进。
             stream.write(f"{dose},0,{-target},0,0,0,0,"
-                         f"{inventory},{inventory},{inventory},"
-                         f"10,80,10,0\n")   # Fe% > Cr% => 违反成分约束
+                         f"{inventory},{inventory},{inventory},0,"
+                         f"10,90,0,0,0\n")
     print(f"PENALIZED {tag}")
     return 0
 
@@ -188,19 +214,23 @@ def cmd_rank(top: int) -> int:
         return 0
     recs.sort(key=lambda t: (0 if t[0]["feasible"] else 1, t[0]["fitness"]))
 
+    tg = COMPOSITION_TARGETS or []
     print(f"{'#':>3s} {'case':18s}{'fitness':>11s} {'可行':>5s}   "
-          f"front 0 / 0.5 / 3 dpa     Cr/Fe/Si% @3dpa")
-    print(f"{'':3s} {'--- 目标 ---':18s}{'':11s} {'':5s}    40.0  60.0  100.0")
+          f"front 0 / 0.5 / 3 dpa    Cr/Fe% @3dpa  ΔCr/ΔFe")
+    tg3 = f"{tg[2][0]:4.1f}/{tg[2][1]:4.1f}" if len(tg) > 2 else "  -/-  "
+    print(f"{'':3s} {'--- 实验靶值 ---':18s}{'':11s} {'':5s}    40.0  60.0  100.0"
+          f"     {tg3}")
     for i, (r, data) in enumerate(recs[:top], 1):
         f = [float(x["front_nm"]) for x in data]
         last = data[2]
+        c3, f3 = float(last["Cr_atom_pct"]), float(last["Fe_atom_pct"])
+        d = (f"{c3 - tg[2][0]:+5.1f}/{f3 - tg[2][1]:+5.1f}" if len(tg) > 2 else "")
         print(f"{i:3d} {r['case_tag']:18s}{r['fitness']:11.3f} {str(r['feasible']):>5s}   "
-              f"{f[0]:5.1f} {f[1]:5.1f} {f[2]:6.1f}     "
-              f"{float(last['Cr_atom_pct']):4.1f}/{float(last['Fe_atom_pct']):4.1f}/"
-              f"{float(last['Si_atom_pct']):4.1f}")
+              f"{f[0]:5.1f} {f[1]:5.1f} {f[2]:6.1f}     {c3:4.1f}/{f3:4.1f}  {d}")
     nfeas = sum(1 for r, _ in recs if r["feasible"])
     print(f"\n可行 {nfeas}/{len(recs)}   "
-          f"(0.5dpa 上限 {MIDDLE_MAX:g} nm, 端点硬约束 ±{getattr(pc,'ENDPOINT_BAND',float('nan')):g} nm)")
+          f"(0.5dpa 上限 {MIDDLE_MAX:g} nm, 端点硬约束 ±{getattr(pc,'ENDPOINT_BAND',float('nan')):g} nm"
+          + (f", 成分靶值已加载, 容差 ±{COMPOSITION_TOL:g} at%)" if tg else ", 无成分靶值)"))
     best = recs[0][0]
     names = ["kCr", "kFe", "kSi", "kspin", "DCr2O3O", "DFe3O4",
              "DFeCr2O4", "DSiO2", "kRobin", "E_mag"]

@@ -24,6 +24,12 @@ POPULATION=40                       # 每代 case 数
 WORKERS=120                         # parpool worker 数 (= POPULATION × 剂量数)
 DOSES="[0, 0.5, 3]"                 # 剂量点
 TARGETS="[40, 60, 100]"             # 对应靶深度 nm
+
+# --- 成分标定: 实验测得的 GB 氧化物 at%, 与前沿位置共同作为标定指标 ---
+# 靶值由 comp_targets.py 从 Composition_Dose.csv 现算, 改实验数据只改那个 csv。
+# 口径 = Cr+Fe+Ni (模型不产 Ni, 所以成分残差有 0.9~3.9% 的地板, 详见该脚本说明)。
+COMPOSITION_BASIS=crfeni            # crfeni / crfe
+COMPOSITION_TOL=5                   # 命中容差 at% (每个剂量的 Cr 和 Fe 都要落在带内)
 MIDDLE_MAX=70                       # 0.5 dpa 软带上限 nm
 ENDPOINT_BAND=5                     # 端点硬约束 nm (超出判不可行)
 ENDPOINT_TOL=3                      # 成功判据端点容差 nm
@@ -76,12 +82,18 @@ fi
 MF="bash $CODE/calibration/ctl/matfdm.sh"
 MANIFEST="$RUNS/runs_${PREFIX}.txt"
 
+# 成分靶值: 从实验 csv 现算, 写进每个运行的 config.json (provenance 也就记下了)
+COMPOSITION_TARGETS=$(module load python >/dev/null 2>&1; \
+  python3 "$CODE/calibration/ctl/comp_targets.py" --basis "$COMPOSITION_BASIS" --json) || {
+  echo "成分靶值算不出来 (Composition_Dose.csv 在吗?), 没提交任何作业"; exit 1; }
+
 echo "=========================================================="
 echo " 扫描      : $SWEEP_KEY = $(echo $SWEEP_VALUES | tr -s ' ')"
 echo " 运行前缀  : $PREFIX      数据根: $RUNS"
 echo " 每代       : $POPULATION cases × $(echo "$DOSES" | tr -cd ',' | wc -c | awk '{print $1+1}') doses = $WORKERS legs"
 echo " 作业       : $NJOBS 轮 × $WALLTIME, 账号 $ACCOUNT, QOS $QOS"
 echo " 覆盖       : $OVERRIDES"
+echo " 成分靶值   : $COMPOSITION_TARGETS  (口径 $COMPOSITION_BASIS, 容差 ±$COMPOSITION_TOL at%)"
 if [[ "$ENGINE" == mcr ]]; then
   echo " 引擎       : MCR standalone (0 个 license 席位)  $BUILD_DIR"
 else
@@ -104,6 +116,8 @@ while read -r id v; do
       "doses=$DOSES" "targets=$TARGETS" \
       "middle_max=$MIDDLE_MAX" "endpoint_band=$ENDPOINT_BAND" \
       "endpoint_tol=$ENDPOINT_TOL" "max_attempts=$MAX_ATTEMPTS" \
+      "composition_targets=$COMPOSITION_TARGETS" \
+      "composition_tol=$COMPOSITION_TOL" \
       "keep_traj=$KEEP_TRAJ" "seed=$SEED" \
       "overrides=$OVERRIDES" > /dev/null
   echo "  [run] $id  ($SWEEP_KEY=$v)"

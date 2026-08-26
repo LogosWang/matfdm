@@ -44,6 +44,37 @@ MIDDLE_MAX = float(os.environ.get("CALIB_MIDDLE_MAX", "70"))
 # 端点(0 与 3 dpa)容差 (nm): 超出即判不可行 —— 端点是硬约束, 优先级高于一切,
 # 任何端点超差的样本都排在全部端点达标样本之后, 中间腿再好也换不来名次。
 ENDPOINT_BAND = float(os.environ.get("CALIB_ENDPOINT_BAND", "5"))
+
+
+def _composition_targets():
+    """实验测得的 GB 氧化物成分靶值 [[Cr%, Fe%], ...], 每个剂量一对。
+
+    来源优先级: 环境变量 CALIB_COMPOSITION_TARGETS (JSON) > <run>/config.json。
+    都没有就返回 None —— 那时成分不参与标定, 退回只标前沿 (兼容旧运行目录)。
+    靶值由 comp_targets.py 从 Composition_Dose.csv 换算, 口径 = Cr+Fe+Ni。
+    """
+    raw = os.environ.get("CALIB_COMPOSITION_TARGETS", "").strip()
+    if not raw:
+        cfg = RUN / "config.json"
+        if not cfg.is_file():
+            return None
+        try:
+            raw = json.dumps(json.loads(cfg.read_text()).get("composition_targets"))
+        except (OSError, ValueError):
+            return None
+    try:
+        tg = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    if not tg or not isinstance(tg, list):
+        return None
+    return np.asarray(tg, dtype=float)
+
+
+COMPOSITION_TARGETS = _composition_targets()
+# 成分残差的标尺 (at%): 差这么多 ≈ 前沿差 3 nm。前沿端点是 raw/3, 这里 /5,
+# 所以 1 at% ≈ 1.67 nm, 两者量级相当而前沿略占优。
+COMPOSITION_SCALE = float(os.environ.get("CALIB_COMPOSITION_SCALE", "5"))
 CONSTRAINT_PENALTY = 1.0e4
 FORMAT_VERSION = 1
 
@@ -105,14 +136,21 @@ def residual_and_constraints(tag: str):
 
     cr = np.array([float(row["Cr_atom_pct"]) for row in rows])
     fe = np.array([float(row["Fe_atom_pct"]) for row in rows])
-    si = np.array([float(row["Si_atom_pct"]) for row in rows])
-    composition = []
-    for cr_i, fe_i, si_i in zip(cr, fe, si):
-        composition.extend((max(0.0, (fe_i - cr_i) / 10.0),
-                            max(0.0, (si_i - cr_i) / 10.0)))
-    shape = [max(0.0, (cr[1] - cr[0]) / 2.0),
-             max(0.0, (cr[2] - cr[1]) / 2.0),
-             max(0.0, (cr[2] - fe[2] - 15.0) / 5.0)]
+
+    # 成分: 与实验测得的 at% 直接比 (2026-08-26 改)。
+    # 旧版这里是一串不等式惩罚 (Fe>Cr 罚、Si>Cr 罚、Cr 必须随剂量下降、
+    # Cr-Fe 差不得超过 15) —— 那是在没有实验数据时用定性趋势凑的代理。
+    # 现在有了 Composition_Dose.csv 的实测值, 这些代理全部作废: 靶值本身
+    # 就蕴含 Cr>Fe、Cr 随剂量下降、以及 3 dpa 时 Cr-Fe 的具体差值, 再叠一层
+    # 不等式只会和靶值打架。
+    if COMPOSITION_TARGETS is None:
+        composition = []
+    else:
+        composition = []
+        for i in range(len(rows)):
+            composition.append((cr[i] - COMPOSITION_TARGETS[i][0]) / COMPOSITION_SCALE)
+            composition.append((fe[i] - COMPOSITION_TARGETS[i][1]) / COMPOSITION_SCALE)
+    shape = []
 
     inventory = np.array([float(row["Cr_atom_inventory"]) for row in rows])
     if not np.all(np.isfinite(inventory)) or inventory[0] <= 0:
@@ -121,21 +159,19 @@ def residual_and_constraints(tag: str):
                  max(0.0, (inventory[2] - inventory[1]) / inventory[0] * 50.0)]
     residual = np.asarray(front + composition + shape + monotonic)
 
+    # 硬约束只剩两类: Cr 库存必须随剂量单调下降, 端点前沿必须落在 band 内。
+    # 成分不再进硬约束 —— 它现在是与实测值的连续残差, 而且 Cr+Fe+Ni 口径下
+    # 残差有 0.9~3.9% 的地板 (模型不产 Ni), 任何"成分必须多准"的硬门槛都会
+    # 把整代样本一次性判成不可行, CMA 就没有排序信息可用了。
     eps = 1.0e-6
     constraints = [(inventory[1] - inventory[0]) / inventory[0] + eps,
                    (inventory[2] - inventory[1]) / inventory[0] + eps]
-    for cr_i, fe_i, si_i in zip(cr, fe, si):
-        constraints.extend(((fe_i - cr_i) / 100.0 + eps,
-                            (si_i - cr_i) / 100.0 + eps))
-    constraints.append((cr[2] - fe[2] - 15.0) / 100.0 + eps)
     # 端点硬约束: |front - target| <= ENDPOINT_BAND。放进 constraints 即进入
     # lexicographic 分层 —— 端点超差的样本永远排在端点达标的样本之后。
     constraints.append((abs(raw[0]) - ENDPOINT_BAND) / ENDPOINT_BAND)
     constraints.append((abs(raw[2]) - ENDPOINT_BAND) / ENDPOINT_BAND)
     constraints = np.asarray(constraints)
     feasible = bool(inventory[0] > inventory[1] > inventory[2]
-                    and np.all(cr > fe) and np.all(cr > si)
-                    and cr[2] - fe[2] <= 15.0
                     and abs(raw[0]) <= ENDPOINT_BAND
                     and abs(raw[2]) <= ENDPOINT_BAND)
     return residual, constraints, feasible

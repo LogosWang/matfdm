@@ -59,7 +59,8 @@ srun --jobid=<作业号> -N1 -n1 --overlap \
 | 物理参数走 `overrides`(`eff`/`Dgb`/`DV`/`f0I`…) | ❌ 运行时读 |
 | 新增/删除变体、换扫描字段与值 | ❌ 只是新建运行目录 |
 | 目标函数、CMA 设置(`propose_cmaes.py`、`patch_objective.py`、`gen_tool.py`) | ❌ 是 Python,不在 CTF 里 |
-| `build_p_decouple.m` 的基线值 | ✅ 是源码 |
+| 实验成分靶值（`Composition_Dose.csv`） | ❌ `comp_targets.py` 现算，写进 config |
+| `build_p_decouple.m` 的基线值 | ✅ 是源码（密度/分子量也在里面，抽指标时从它读）|
 | `rhs_aks.m` 等方程、`run_calibration_case.m`、网格/时长逻辑 | ✅ 是源码 |
 
 改了源码没重编,`baseline.json` 里的 `build_commit` 会和当前 commit 对不上,
@@ -183,7 +184,37 @@ MATFDM_RUN=$SCRATCH/matfdm_runs/ft5e-1 CALIB_POPULATION=40 \
 | `max_attempts` | 3 | 腿失败几次后熔断该 case |
 | `keep_traj` | false | 是否存 `*_timeseries.mat` (每腿 ~7 MB) |
 | `seed` | 20260804 | CMA 种子 (多链要给不同值) |
+| `composition_targets` | 由 csv 现算 | 实验成分靶值 `[[Cr%,Fe%], ...]`，每个剂量一对 |
+| `composition_tol` | 5 | 成分命中容差 at%（Cr 和 Fe 都要落在带内）|
 | `overrides` | `{}` | 覆盖 `p` 的任意字段 |
+
+---
+
+### 标定指标：前沿位置 + 成分
+
+标定同时盯两件事，两者都进 `residual`：
+
+| 指标 | 靶值来源 | 权重 |
+|---|---|---|
+| 前沿深度 nm | `config.json` 的 `targets` | 端点 `Δ/3`，0.5 dpa 带内 `Δ/6` |
+| 成分 at% | `Composition_Dose.csv` → `composition_targets` | `Δ/5`（`CALIB_COMPOSITION_SCALE` 可调）|
+
+成分口径：**分母 = Cr+Fe+Ni**。SiO2 会溶解，不占氧化物金属份额；Ni 留在分母里
+是为了和实验同口径。因为模型不产 Ni（Ni≡0），模型的 Cr%+Fe% 恒为 100%，而实验只有
+99.1/97.6/96.1%，所以**成分残差有 0.87/2.38/3.94 at% 的地板，fitness 不会收敛到零**。
+这是这个口径的固有属性 —— 好处是 Ni 的缺失被如实记在账上，不会被归一化抹掉。
+
+```bash
+python3 calibration/ctl/comp_targets.py                 # 看靶值表
+python3 calibration/ctl/comp_targets.py --basis crfe    # 换成把 Ni 归一化掉的口径
+```
+
+换实验数据只要换 `Composition_Dose.csv`；换口径只要改 `JOB.sh` 的 `COMPOSITION_BASIS`。
+**两者都不用重编** —— 模型 Ni≡0，所以 MATLAB 算的 `Cr/(Cr+Fe+Ni)` 与 `Cr/(Cr+Fe)` 恒等，
+口径差别全在 config 里的靶值上。
+
+硬约束只剩两类：Cr 库存随剂量单调下降、端点前沿落在 `endpoint_band` 内。成分**不进硬约束**：
+有那个地板在，任何“成分必须多准”的硬门槛都会把整代样本一次判成不可行，CMA 就没排序信息了。
 
 ---
 
@@ -193,7 +224,7 @@ MATFDM_RUN=$SCRATCH/matfdm_runs/ft5e-1 CALIB_POPULATION=40 \
 |---|---|
 | 全部运行总览 | `mf status` |
 | 某运行的 CMA 状态 | `mf status ft5e-1` |
-| 前十名 + 参数绝对值 | `mf best ft5e-1 10` |
+| 前十名 + 参数绝对值 + 成分残差 | `mf best ft5e-1 10` |
 | 每个运行各导一份前十名 txt | `mf export 'ft*' 10` |
 | 队列 | `squeue --me -o "%.10i %.12j %.6D %.8T %.9M %.20R"` |
 | 多节点作业总日志 | `tail -f $SCRATCH/matfdm_runs/mn_ft-*.out` |
@@ -228,10 +259,13 @@ mf export 'eff*' 10 ~/out       # 换前缀 / 换输出目录
 | `--pattern` | `ft*` | 运行目录通配 |
 | `--top` | 10 | 每个运行取前几名 |
 | `--out` | `<数据根>/postprocess` | 输出目录 |
-| `--csv` | 关 | 顺带导一份同名 `.csv` |
+| `--csv` | 关 | 顺带导一份同名 `.csv`（含逐剂量 Cr/Fe at%、Δ、`comp_max_abs_dev`）|
 
 文件名 = 运行目录名(`ft1e-1.txt`、`ft5e-1.txt`…)。正文格式与 `mf best` 一致——
 脚本是逐个运行去调 `show_best.py`,不另抄排版。判据取该运行自己的 `config.json`。
+
+总表带一列 `成分|Δ|max`，是该运行第一名在三个剂量上 Cr/Fe 偏差的最大绝对值；
+txt 正文里每个 case 都有一行 `成分残差 : ΔCr ... ΔFe ... 最大|Δ| ... 命中/超差`。
 
 **排序按扫描值的数值**,不是目录名字典序(`ft1e0`=1 在字典序里会排到 `ft2e-1`=0.2 前面)。
 
@@ -342,4 +376,6 @@ $SCRATCH/matfdm_build/CURRENT/      编译产物
 | 内存吃紧 | 单腿约 1.8 GB;`workers` × 1.8 GB 要留余量(120 腿实测峰值 215 GB / 503 GB) |
 | MCR 启动慢 / Lustre 卡 | `MCR_CACHE_ROOT` 必须在节点本地 `/tmp`,`multi_node.sh` 已设好 |
 | 还在占 license | 确认 `MATFDM_ENGINE` 不是 `matlab`;`mn_*.out` 里应打印 `license : 0 个席位` |
+| 成分残差永远到不了 0 | 预期。Cr+Fe+Ni 口径下有 0.87/2.38/3.94 at% 的地板（模型不产 Ni）；想去掉地板就换 `COMPOSITION_BASIS=crfe` |
+| 一代里没一个可行样本 | 成分不是硬约束，看的是 Cr 库存单调与端点带；放宽 `endpoint_band` 或检查库存是否倒挂 |
 | 后处理绝对值可疑 | `baseline.json` 的 `build_commit` 与当前 commit 对不上 = 源码改了没重编 |

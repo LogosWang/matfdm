@@ -24,6 +24,8 @@ __pycache__/
 # ---- 计算产物 (数值结果, 图, 表) ----
 *.mat
 *.csv
+# 实验测得的 GB 氧化物成分: 是输入不是产物, 必须跟踪
+!Composition_Dose.csv
 *.png
 *.fig
 *.pdf

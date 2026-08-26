@@ -77,7 +77,7 @@ def child_env(run: Path, cfg: dict) -> dict:
 
 def header(run: Path, cfg: dict, n_eval: int) -> str:
     keys = ("run_id", "front_thick", "population", "workers", "doses", "targets",
-            "middle_max", "endpoint_band", "endpoint_tol", "seed")
+            "middle_max", "endpoint_band", "endpoint_tol", "composition_tol", "seed")
     lines = [
         "=" * 72,
         f"运行     : {run.name}      目录 {run}",
@@ -86,6 +86,14 @@ def header(run: Path, cfg: dict, n_eval: int) -> str:
         "配置     : " + "  ".join(f"{k}={json.dumps(cfg[k], ensure_ascii=False)}"
                                   for k in keys if k in cfg),
     ]
+    if cfg.get("composition_targets"):
+        tg = cfg["composition_targets"]
+        doses = cfg.get("doses", [0, 0.5, 3])
+        lines.append("成分靶值 : " + "  ".join(
+            f"{d:g}dpa Cr {c:.2f}/Fe {f:.2f}" for (c, f), d in zip(tg, doses))
+            + "   (实验值, 口径 Cr+Fe+Ni)")
+    else:
+        lines.append("成分靶值 : 未配置, 本运行只标前沿")
     if cfg.get("overrides"):
         lines.append("覆盖     : " + json.dumps(cfg["overrides"], ensure_ascii=False))
     done = run / "calibration" / "DONE"
@@ -118,7 +126,8 @@ def main() -> int:
     print(f"运行   : {len(pairs)} 个 ({args.pattern}), 每个取前 {args.top} 名")
     print(f"扫描   : {swept or '(认不出单一扫描字段, 按名字自然排序)'}\n")
     col = swept.split('.')[-1] if swept else '值'
-    print(f"{'运行':<10s}{col:>10s}{'评估':>7s}{'可行':>7s}  {'最佳 fitness':>14s}  文件")
+    print(f"{'运行':<10s}{col:>10s}{'评估':>7s}{'可行':>7s}  {'最佳 fitness':>14s}"
+          f"  {'成分|Δ|max':>11s}  文件")
 
     ok = 0
     for run, cfg in pairs:
@@ -140,18 +149,24 @@ def main() -> int:
 
         txt.write_text(header(run, cfg, n_eval) + body, encoding="utf-8")
 
-        # 摘要行: 从 show_best 的输出里抠出可行数与第一名的 fitness
-        feasible = best = "-"
+        # 摘要行: 从 show_best 的输出里抠出可行数、第一名的 fitness 与成分偏差
+        feasible = best = comp = "-"
+        seen_first = False
         for line in body.splitlines():
-            if line.startswith("当前判据") and "可行" in line:
+            if line.startswith("可行 "):
                 feasible = line.split("可行")[-1].strip().rstrip(",")
             if line.startswith("#1 ") and "fitness=" in line:
                 best = line.split("fitness=")[1].split()[0]
+                seen_first = True
+                continue
+            # 第一名那一段里的成分残差行
+            if seen_first and "最大 |Δ|" in line:
+                comp = line.split("最大 |Δ|")[1].split("at%")[0].strip()
                 break
         if proc.returncode == 0:
             ok += 1
         print(f"{run.name:<10s}{sval:>10s}{n_eval:>7d}{feasible:>7s}  "
-              f"{best:>14s}  {txt.name}")
+              f"{best:>14s}  {comp:>11s}  {txt.name}")
 
     print(f"\n{ok}/{len(pairs)} 个运行导出成功 -> {out}")
     return 0 if ok else 1
