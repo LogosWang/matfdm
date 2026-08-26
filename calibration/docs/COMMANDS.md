@@ -229,12 +229,17 @@ python3 calibration/ctl/comp_targets.py --basis crfe    # 换成把 Ni 归一化
 | 每个运行各导一份前十名 txt | `mf export 'ft*' 10` |
 | 队列 | `squeue --me -o "%.10i %.12j %.6D %.8T %.9M %.20R"` |
 | 多节点作业总日志 | `tail -f $SCRATCH/matfdm_runs/mn_ft-*.out` |
-| 某节点日志 | `tail -f $SCRATCH/matfdm_runs/ft5e-1/node-*.log` |
+| 某节点日志 | `tail -f $SCRATCH/matfdm_runs/ft5e-1/node-<作业号>-*.log` |
+| 全部节点的一代进度 | `grep -h '\[gen ' $SCRATCH/matfdm_runs/ft*/node-<作业号>-*.log \| tail -20` |
+| 本次作业有没有超时判死 | `grep -h '\[timeout\]\|\[dead\]' $SCRATCH/matfdm_runs/ft*/node-<作业号>-*.log` |
 | 某条腿跑到第几窗 | `tail -3 $SCRATCH/matfdm_runs/ft5e-1/calibration/logs/b12_c07_cma_dose3.log` |
 | 某 case 三行指标 | `column -s, -t $SCRATCH/matfdm_runs/ft5e-1/calibration/metrics/b12_c07_cma.csv` |
 | 排名(现算, 不读快照) | `MATFDM_RUN=…/ft5e-1 python3 $MATFDM_CODE/calibration/ctl/gen_tool.py rank --top 20` |
 | **确认没占 license** | `ssh <node> 'ls -l /proc/*/exe 2>/dev/null \| grep -c R2023b/bin/glnxa64/MATLAB'` 应为 0 |
 | 节点上的腿进程数 | `ssh <node> 'pgrep -c -u $USER -f matfdm_run'` 应为 `workers` |
+
+**日志命令一律带上作业号。** `node-*.log` 会把历次作业的日志全匹配上 —— 一个运行目录
+里累积着几十个作业的日志,不带作业号翻出来的多半是旧的。
 
 `fitness_history.csv` 和 `cma_generation.json` 是**上一次 propose 的快照**;
 改过目标函数要用 `rank` / `best` 现算,或等下一代刷新。
