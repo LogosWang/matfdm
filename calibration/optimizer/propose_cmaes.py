@@ -97,6 +97,9 @@ def _composition_scale() -> float:
 
 COMPOSITION_SCALE = _composition_scale()
 CONSTRAINT_PENALTY = 1.0e4
+# 残差/约束的绝对值上限。分母都保护过了, 这是最后一道: nan 会让 CMA 的排序
+# 整个失效 (nan 的比较恒为假), inf 会让 objective 溢出。
+RESID_CLIP = 1.0e3
 FORMAT_VERSION = 1
 
 
@@ -190,11 +193,21 @@ def residual_and_constraints(tag: str):
     shape = [max(0.0, (cr[1] - cr[0]) / 2.0),
              max(0.0, (cr[2] - cr[1]) / 2.0)] if len(rows) >= 3 else []
 
+    # 库存: 归一化的分母是 inventory[0]。它可能是 0 —— 一组乘子把氧化几乎完全
+    # 压住时, 全长积分出来的 Cr 就是 0。这里**绝不能抛异常**: evaluate_batch 会把
+    # 异常一路抛到 propose 失败, 而这个 case 明明有指标文件, gen_tool 的
+    # penalize-missing 只管"缺文件"的救不了它, 该变体会永久卡在同一代。
+    # 改为按最差处理: 单调项给满, 库存约束判违反, 落进不可行层, CMA 照常排序推进。
     inventory = np.array([float(row["Cr_atom_inventory"]) for row in rows])
-    if not np.all(np.isfinite(inventory)) or inventory[0] <= 0:
-        raise ValueError(f"{tag}: invalid Cr inventory")
-    monotonic = [max(0.0, (inventory[1] - inventory[0]) / inventory[0] * 50.0),
-                 max(0.0, (inventory[2] - inventory[1]) / inventory[0] * 50.0)]
+    inv_ok = bool(np.all(np.isfinite(inventory)) and inventory[0] > 0)
+    if inv_ok:
+        monotonic = [max(0.0, (inventory[1] - inventory[0]) / inventory[0] * 50.0),
+                     max(0.0, (inventory[2] - inventory[1]) / inventory[0] * 50.0)]
+        inv_constraints = [(inventory[1] - inventory[0]) / inventory[0],
+                           (inventory[2] - inventory[1]) / inventory[0]]
+    else:
+        monotonic = [50.0, 50.0]          # 相当于库存翻倍上涨, 最差
+        inv_constraints = [1.0, 1.0]      # 正数 = 违反
     residual = np.asarray(front + composition + reach + shape + monotonic)
 
     # 硬约束只剩两类: Cr 库存必须随剂量单调下降, 端点前沿必须落在 band 内。
@@ -202,18 +215,28 @@ def residual_and_constraints(tag: str):
     # 残差有 0.9~3.9% 的地板 (模型不产 Ni), 任何"成分必须多准"的硬门槛都会
     # 把整代样本一次性判成不可行, CMA 就没有排序信息可用了。
     eps = 1.0e-6
-    constraints = [(inventory[1] - inventory[0]) / inventory[0] + eps,
-                   (inventory[2] - inventory[1]) / inventory[0] + eps]
+    constraints = [c + eps for c in inv_constraints]
     # 够不着取样深度 -> 硬约束违反 (成分数据无效, 不该和有效样本同层比较)
     constraints.extend(x / 10.0 for x in shortfall)
     # 端点硬约束: |front - target| <= ENDPOINT_BAND。放进 constraints 即进入
     # lexicographic 分层 —— 端点超差的样本永远排在端点达标的样本之后。
-    constraints.append((abs(raw[0]) - ENDPOINT_BAND) / ENDPOINT_BAND)
-    constraints.append((abs(raw[2]) - ENDPOINT_BAND) / ENDPOINT_BAND)
-    constraints = np.asarray(constraints)
-    feasible = bool(inventory[0] > inventory[1] > inventory[2]
-                    and abs(raw[0]) <= ENDPOINT_BAND
-                    and abs(raw[2]) <= ENDPOINT_BAND
+    band = ENDPOINT_BAND if ENDPOINT_BAND > 0 else 5.0     # 配成 0 也不能除零
+    constraints.append((abs(raw[0]) - band) / band)
+    constraints.append((abs(raw[2]) - band) / band)
+
+    # 兜底: 任何一项算成 nan/inf 都会让 CMA 的排序失效 (nan 比较是假, 整代乱序)。
+    # 上面每个分母都已经保护过, 这里再夹一道, 保证 evaluate_case 永远给出有限值。
+    residual = np.clip(np.nan_to_num(residual, nan=RESID_CLIP,
+                                     posinf=RESID_CLIP, neginf=-RESID_CLIP),
+                       -RESID_CLIP, RESID_CLIP)
+    constraints = np.clip(np.nan_to_num(np.asarray(constraints, dtype=float),
+                                        nan=RESID_CLIP, posinf=RESID_CLIP,
+                                        neginf=-RESID_CLIP),
+                          -RESID_CLIP, RESID_CLIP)
+    feasible = bool(inv_ok
+                    and inventory[0] > inventory[1] > inventory[2]
+                    and abs(raw[0]) <= band
+                    and abs(raw[2]) <= band
                     and max(shortfall) <= 0.0)
     return residual, constraints, feasible
 
@@ -226,7 +249,9 @@ def evaluate_case(case: dict) -> dict:
     # result rank ahead of every infeasible result, while infeasible samples
     # are ordered by normalized constraint violation and then target error.
     fitness = objective if feasible else 1.0e6 + 1000.0 * violation + objective
-    x = np.log(np.asarray(case["mult"], dtype=float))
+    mult = np.asarray(case["mult"], dtype=float)
+    # 乘子理论上都是 exp() 出来的正数; state.json 被手改坏时兜一下, 免得 log 出 nan
+    x = np.log(np.clip(mult, 1.0e-12, None))
     return {"case_tag": case["case_tag"], "x": x, "objective": objective,
             "violation": violation, "feasible": feasible, "fitness": fitness,
             "constraints": constraints}

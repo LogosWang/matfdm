@@ -401,6 +401,11 @@ $SCRATCH/matfdm_build/CURRENT/      编译产物
 **引擎**:`run_generation.py` 每代 fork `workers` 个 `matfdm_run leg` 进程,
 各跑一条腿,互不通信。CMA-ES 全在 Python,编译不影响它。
 
+**基线唯一来源**:十个标定参数的基线只在 `build_p_decouple.m` 里定义一处。
+`run_calibration_case.m` 是 `vals = base .* mult`(基线从 `p` 读),`show_best.py` 用正则
+从同一个文件抓,编译时 `baseline.json` 也是用刚编出来的二进制自己导的。`build_p.m` 里
+另有一套值,但它只被 `maincp*.m` 那套旧脚本用,**不在标定路径也没编进 standalone**。
+
 **隔离**:`MATFDM_RUN` 指到哪数据写到哪;代码目录永远只读,多个运行/节点互不可见。
 
 **指纹**:`params.txt` = 乘子 + 基线 + 全部关键标量,改任何物理量旧腿自动作废重算。
@@ -420,6 +425,7 @@ $SCRATCH/matfdm_build/CURRENT/      编译产物
 | 秒退"STOP 存在" | `mf resume <id>` |
 | `future feature annotations` | 用了 /usr/bin/python3 (3.6);`module load python` |
 | `CMA-ES 提议失败` | 看日志里紧跟的 python 报错;缺指标会自动 `penalize-missing` 重试 |
+| 某变体一直卡在同一代 | 曾经的成因是某个 case 有指标但评不了(Cr 库存为 0 → 除零分母)导致 propose 每次都抛异常，而 `penalize-missing` 只管缺文件的救不了。现已改成按最差评分，不再抛异常 |
 | `与 POPULATION 不符` | `config.json` 的 `population` 和磁盘上该代的 case 数对不上,人工确认 |
 | 某腿反复失败 | 3 次后熔断,不卡整代 |
 | 某腿算不完、一代迟迟不推进 | 设 `leg_timeout`（如 10800 = 3 h）。腿慢本身就是走到刚性区域的信号,超时即判该 case 不收敛并丢弃,CMA 拿到惩罚样本继续走 |
