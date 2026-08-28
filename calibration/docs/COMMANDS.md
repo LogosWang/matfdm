@@ -191,6 +191,7 @@ MATFDM_RUN=$SCRATCH/matfdm_runs/ft5e-1 CALIB_POPULATION=40 \
 | `composition_targets` | 由 csv 现算 | 实验成分靶值 `[[Cr%,Fe%], ...]`，每个剂量一对 |
 | `composition_tol` | 5 | 成分命中容差 at%（Cr 和 Fe 都要落在带内）|
 | `composition_scale` | 3 | 成分残差标尺 at%，越小权重越高；3 = 与前沿端点等权 |
+| `composition_depth` | `[23,30,44]` | 成分取样深度 nm，每个剂量一个，与实验取样位置一致 |
 | `overrides` | `{}` | 覆盖 `p` 的任意字段 |
 
 ---
@@ -204,6 +205,18 @@ MATFDM_RUN=$SCRATCH/matfdm_runs/ft5e-1 CALIB_POPULATION=40 \
 | 前沿深度 nm | `config.json` 的 `targets` | 端点 `Δ/3`，0.5 dpa 带内 `Δ/6` |
 | 成分 at% | `Composition_Dose.csv` → `composition_targets` | `Δ/composition_scale`，默认 `/3` |
 | Cr 随剂量的趋势 | 无（定性先验）| 单边惩罚：`max(0, Cr↑)/2`，趋势对了为 0 |
+| 前沿要够得着取样深度 | `composition_depth` | `max(0, 深度−前沿)/2`，且进硬约束 |
+
+**成分是在实验的取样深度上就地取的，不是沿 GB 全长积分。** `composition_depth`
+默认 `[23, 30, 44]` nm（对应 0 / 0.5 / 3 dpa），与实验取样位置一致。全长积分等于把
+前沿以内所有深度混在一起平均，和实验在某个固定深度上测的不是一回事。
+
+前沿还没推到取样深度时，那里根本没有氧化物，成分无从谈起（MATLAB 侧 at% 记 0）。
+这种样本**判不可行**并按"差多少纳米才够得着"给一项残差——只按"成分差得远"罚不行，
+因为 at%=0 算出来的残差是有界的，反而可能比真跑到深度但成分不准的样本还好看。
+
+库存（`Cr_atom_inventory`）仍然是**全长积分** —— 它约束的是氧化物里 Cr 总量随剂量
+单调下降，本来就该是全局量。
 
 `composition_scale` **越小成分权重越高**。前沿端点是 `/3`，所以默认 3 = 成分与前沿端点
 等权；设 5 则成分只有前沿的 0.6 倍。改它不用重编。

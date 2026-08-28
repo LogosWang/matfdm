@@ -49,7 +49,7 @@ COMPOSITION_TOL = float(os.environ.get("CALIB_COMPOSITION_TOL",
                                        _cfg("composition_tol", 5)))
 
 
-NEEDED = ("dose", "front_nm", "Cr_atom_inventory",
+NEEDED = ("dose", "front_nm", "comp_depth_nm", "Cr_atom_inventory",
           "Cr_atom_pct", "Fe_atom_pct", "Si_atom_pct")
 
 
@@ -90,10 +90,12 @@ def is_success(tag: str, tol: float) -> bool:
     inv = [float(r["Cr_atom_inventory"]) for r in data]
     cr = [float(r["Cr_atom_pct"]) for r in data]
     fe = [float(r["Fe_atom_pct"]) for r in data]
+    depth = [float(r.get("comp_depth_nm", 0) or 0) for r in data]
     ok_front = (abs(front[0] - 40.0) <= tol
                 and 60.0 <= front[1] <= MIDDLE_MAX
                 and abs(front[2] - 100.0) <= tol
-                and inv[0] > inv[1] > inv[2])
+                and inv[0] > inv[1] > inv[2]
+                and all(f >= d for f, d in zip(front, depth)))   # 必须够得着取样深度
     if not ok_front:
         return False
     # 成分: 与实测 at% 逐点比 (旧版是 Cr>Fe、Cr>Si、Cr-Fe<=15 这几条定性代理,
@@ -154,10 +156,12 @@ def cmd_report(batch: int) -> int:
     return 0
 
 
-HEADER = ("dose,front_nm,residual_nm,Cr2O3_int,Fe3O4_int,FeCr2O4_int,SiO2_int,"
+HEADER = ("dose,front_nm,residual_nm,comp_depth_nm,"
+          "Cr2O3_int,Fe3O4_int,FeCr2O4_int,SiO2_int,"
           "Cr_atom_inventory,Fe_atom_inventory,Si_atom_inventory,Ni_atom_inventory,"
           "Cr_atom_pct,Fe_atom_pct,Si_atom_pct,Ni_atom_pct,Cr_atom_major")
 TARGETS = (40.0, 60.0, 100.0)
+DEPTHS = tuple(_cfg("composition_depth", [23, 30, 44]))
 
 
 def cmd_penalize(tag: str) -> int:
@@ -174,7 +178,7 @@ def cmd_penalize(tag: str) -> int:
             inventory = 1.0 + i          # 递增 => 违反 Cr 库存单调下降
             # 前沿全 0 (残差最大) + 库存递增 (违反唯一的硬约束) + 成分离靶极远,
             # 于是排在所有可行样本之后, CMA 正常 tell 后继续推进。
-            stream.write(f"{dose},0,{-target},0,0,0,0,"
+            stream.write(f"{dose},0,{-target},{DEPTHS[i]},0,0,0,0,"
                          f"{inventory},{inventory},{inventory},0,"
                          f"10,90,0,0,0\n")
     print(f"PENALIZED {tag}")

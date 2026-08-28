@@ -96,6 +96,7 @@ def main() -> int:
     tg = cfg.get("composition_targets") or None       # 实验成分靶值 [[Cr%,Fe%],...]
     ctol = float(cfg.get("composition_tol", 5))
     ftg = cfg.get("targets") or [40, 60, 100]         # 前沿靶深度, 别写死
+    cdep = cfg.get("composition_depth") or [23, 30, 44]   # 成分取样深度
     doses = cfg.get("doses") or [0, 0.5, 3]
     if not STATE.is_file():           # 一代都没跑完的运行 (比如全程没抢到 license)
         print(f"还没有 state.json ({STATE}), 这个运行一代都没跑完")
@@ -128,6 +129,9 @@ def main() -> int:
               f"±{ctol:g} at%, 权重标尺 /{pc.COMPOSITION_SCALE:g} (前沿端点 /3)")
         print("          靶值 " + "  ".join(
             f"{d:g}dpa Cr {c:.1f}/Fe {f:.1f}" for (c, f), d in zip(tg, doses)))
+        print("          取样深度 " + "  ".join(
+            f"{d:g}dpa @{z:g}nm" for z, d in zip(cdep, doses))
+            + "  (前沿够不着则判不可行)")
         # 模型不产 Ni, Cr%+Fe% 恒为 100, 而实验靶值之和小于 100 —— 差额就是地板
         floor = [100.0 - c - f for c, f in tg]
         if max(floor) > 0.05:
@@ -154,6 +158,8 @@ def main() -> int:
             if tg and i < len(tg):
                 line += (f"   靶 {tg[i][0]:.1f}/{tg[i][1]:.1f}"
                          f"  Δ {pct[i][0]-tg[i][0]:+.1f}/{pct[i][1]-tg[i][1]:+.1f}")
+            if i < len(cdep) and front[i] < cdep[i]:
+                line += f"   !! 前沿 {front[i]:.1f} < 取样深度 {cdep[i]:g}"
             print(line)
         if tg:
             dcr = [pct[i][0] - tg[i][0] for i in range(min(len(pct), len(tg)))]

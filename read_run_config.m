@@ -33,6 +33,8 @@ cfg = setdef(cfg, 'workers',       120);
 cfg = setdef(cfg, 'middle_max',    70);       % 0.5 dpa 软带上限 nm
 cfg = setdef(cfg, 'endpoint_band', 5);        % 端点硬约束 nm
 cfg = setdef(cfg, 'endpoint_tol',  3);        % 成功判据端点容差 nm
+% 成分取样深度 nm, 每个剂量一个 —— 与实验取样位置一致
+cfg = setdef(cfg, 'composition_depth', [23; 30; 44]);
 cfg = setdef(cfg, 'max_attempts',  3);
 cfg = setdef(cfg, 'keep_traj',     false);
 cfg = setdef(cfg, 'seed',          20260804);

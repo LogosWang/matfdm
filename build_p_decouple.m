@@ -67,10 +67,10 @@ p.DCr2O3O  = 6e-4;      % O 穿内层
 p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 0.08;  p.DFeCr2O4 = 0.01;  p.DSiO2 = 0.3;
  
 % ---- 界面动力学 (nm/s) ----
-p.kCr = 0.01;  p.kSi = 0.0002;  p.kFe = 4.22e-5;  p.kspin = 0.0002;
+p.kCr = 0.04;  p.kSi = 0.0002;  p.kFe = 1e-5;  p.kspin = 0.0001;
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
-p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.004;  p.E_spin = 0;
+p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.0004;  p.E_spin = 0;
 p.kRobin = 0.44;
 % O场(水归一)与金属(site fraction)的原子当量换算: rOM = C_O,ref/Nden
 % 满水通道 O 密度锚 ~33/87≈0.38; 稀载流子则 <<1。=1 完全还原旧行为。

@@ -158,12 +158,23 @@ def residual_and_constraints(tag: str):
     cr = np.array([float(row["Cr_atom_pct"]) for row in rows])
     fe = np.array([float(row["Fe_atom_pct"]) for row in rows])
 
-    # 成分: 与实验测得的 at% 直接比。
+    # 成分: 与实验测得的 at% 直接比。at% 是在实验取样深度上就地取的
+    # (comp_depth_nm), 不是全长积分 —— 见 extract_calibration_metrics.m。
     composition = []
     if COMPOSITION_TARGETS is not None:
         for i in range(len(rows)):
             composition.append((cr[i] - COMPOSITION_TARGETS[i][0]) / COMPOSITION_SCALE)
             composition.append((fe[i] - COMPOSITION_TARGETS[i][1]) / COMPOSITION_SCALE)
+
+    # 前沿没推到取样深度 = 那里根本没有氧化物, 成分无从谈起 (MATLAB 侧 at% 记 0)。
+    # 这种样本不能只按"成分差得远"来罚 —— 它压根没有可比的量, 而且 at%=0 算出来的
+    # 残差是有界的, 反而可能比一个真跑到深度但成分不准的样本还好看。所以:
+    #   1) 残差里按"差多少纳米才够得着"给一项, 提供把前沿往深推的梯度;
+    #   2) 同时进硬约束, 落进不可行层, 排在所有够得着的样本之后。
+    depths = [float(row.get("comp_depth_nm", 0) or 0) for row in rows]
+    fronts = [float(row["front_nm"]) for row in rows]
+    shortfall = [max(0.0, dep - fr) for dep, fr in zip(depths, fronts)]
+    reach = [x / 2.0 for x in shortfall]
 
     # 趋势: Cr 必须随剂量单调下降。单边惩罚 —— 趋势对了代价为零, 反了才罚。
     #
@@ -184,7 +195,7 @@ def residual_and_constraints(tag: str):
         raise ValueError(f"{tag}: invalid Cr inventory")
     monotonic = [max(0.0, (inventory[1] - inventory[0]) / inventory[0] * 50.0),
                  max(0.0, (inventory[2] - inventory[1]) / inventory[0] * 50.0)]
-    residual = np.asarray(front + composition + shape + monotonic)
+    residual = np.asarray(front + composition + reach + shape + monotonic)
 
     # 硬约束只剩两类: Cr 库存必须随剂量单调下降, 端点前沿必须落在 band 内。
     # 成分不再进硬约束 —— 它现在是与实测值的连续残差, 而且 Cr+Fe+Ni 口径下
@@ -193,6 +204,8 @@ def residual_and_constraints(tag: str):
     eps = 1.0e-6
     constraints = [(inventory[1] - inventory[0]) / inventory[0] + eps,
                    (inventory[2] - inventory[1]) / inventory[0] + eps]
+    # 够不着取样深度 -> 硬约束违反 (成分数据无效, 不该和有效样本同层比较)
+    constraints.extend(x / 10.0 for x in shortfall)
     # 端点硬约束: |front - target| <= ENDPOINT_BAND。放进 constraints 即进入
     # lexicographic 分层 —— 端点超差的样本永远排在端点达标的样本之后。
     constraints.append((abs(raw[0]) - ENDPOINT_BAND) / ENDPOINT_BAND)
@@ -200,7 +213,8 @@ def residual_and_constraints(tag: str):
     constraints = np.asarray(constraints)
     feasible = bool(inventory[0] > inventory[1] > inventory[2]
                     and abs(raw[0]) <= ENDPOINT_BAND
-                    and abs(raw[2]) <= ENDPOINT_BAND)
+                    and abs(raw[2]) <= ENDPOINT_BAND
+                    and max(shortfall) <= 0.0)
     return residual, constraints, feasible
 
 
