@@ -30,6 +30,8 @@ TARGETS="[40, 60, 100]"             # 对应靶深度 nm
 # 口径 = Cr+Fe+Ni (模型不产 Ni, 所以成分残差有 0.9~3.9% 的地板, 详见该脚本说明)。
 COMPOSITION_BASIS=crfeni            # crfeni / crfe
 COMPOSITION_TOL=5                   # 命中容差 at% (每个剂量的 Cr 和 Fe 都要落在带内)
+COMPOSITION_SCALE=3                 # 成分残差标尺 at%: 越小权重越高。前沿端点是 /3,
+                                    # 所以 3 = 成分与前沿端点等权; 5 = 成分只有 0.6 倍。
 MIDDLE_MAX=70                       # 0.5 dpa 软带上限 nm
 ENDPOINT_BAND=5                     # 端点硬约束 nm (超出判不可行)
 ENDPOINT_TOL=3                      # 成功判据端点容差 nm
@@ -98,6 +100,7 @@ echo " 每代       : $POPULATION cases × $(echo "$DOSES" | tr -cd ',' | wc -c 
 echo " 作业       : $NJOBS 轮 × $WALLTIME, 账号 $ACCOUNT, QOS $QOS"
 echo " 覆盖       : $OVERRIDES"
 echo " 成分靶值   : $COMPOSITION_TARGETS  (口径 $COMPOSITION_BASIS, 容差 ±$COMPOSITION_TOL at%)"
+echo " 成分权重   : 标尺 /$COMPOSITION_SCALE at% (前沿端点是 /3, 相等即等权)"
 echo " 单腿时限   : $(( LEG_TIMEOUT / 60 )) min 累计 (超时判不收敛, 丢弃整个 case)"
 if [[ "$ENGINE" == mcr ]]; then
   echo " 引擎       : MCR standalone (0 个 license 席位)  $BUILD_DIR"
@@ -122,7 +125,8 @@ while read -r id v; do
       "middle_max=$MIDDLE_MAX" "endpoint_band=$ENDPOINT_BAND" \
       "endpoint_tol=$ENDPOINT_TOL" "max_attempts=$MAX_ATTEMPTS" \
       "composition_targets=$COMPOSITION_TARGETS" \
-      "composition_tol=$COMPOSITION_TOL" "leg_timeout=$LEG_TIMEOUT" \
+      "composition_tol=$COMPOSITION_TOL" "composition_scale=$COMPOSITION_SCALE" \
+      "leg_timeout=$LEG_TIMEOUT" \
       "keep_traj=$KEEP_TRAJ" "seed=$SEED" \
       "overrides=$OVERRIDES" > /dev/null
   echo "  [run] $id  ($SWEEP_KEY=$v)"

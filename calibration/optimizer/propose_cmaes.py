@@ -72,9 +72,30 @@ def _composition_targets():
 
 
 COMPOSITION_TARGETS = _composition_targets()
-# 成分残差的标尺 (at%): 差这么多 ≈ 前沿差 3 nm。前沿端点是 raw/3, 这里 /5,
-# 所以 1 at% ≈ 1.67 nm, 两者量级相当而前沿略占优。
-COMPOSITION_SCALE = float(os.environ.get("CALIB_COMPOSITION_SCALE", "5"))
+
+
+def _composition_scale() -> float:
+    """成分残差的标尺 (at%)。数越小成分权重越高。
+
+    前沿端点用的是 raw/3, 所以 scale=3 时"差 1 at%"与"前沿差 1 nm"等价 ——
+    成分和前沿端点等权。scale=5 (旧默认) 时成分只有前沿的 0.6 倍。
+    """
+    raw = os.environ.get("CALIB_COMPOSITION_SCALE", "").strip()
+    if not raw:
+        cfg = RUN / "config.json"
+        if cfg.is_file():
+            try:
+                raw = json.loads(cfg.read_text()).get("composition_scale")
+            except (OSError, ValueError):
+                raw = None
+    try:
+        v = float(raw)
+        return v if v > 0 else 3.0
+    except (TypeError, ValueError):
+        return 3.0
+
+
+COMPOSITION_SCALE = _composition_scale()
 CONSTRAINT_PENALTY = 1.0e4
 FORMAT_VERSION = 1
 
@@ -137,20 +158,26 @@ def residual_and_constraints(tag: str):
     cr = np.array([float(row["Cr_atom_pct"]) for row in rows])
     fe = np.array([float(row["Fe_atom_pct"]) for row in rows])
 
-    # 成分: 与实验测得的 at% 直接比 (2026-08-26 改)。
-    # 旧版这里是一串不等式惩罚 (Fe>Cr 罚、Si>Cr 罚、Cr 必须随剂量下降、
-    # Cr-Fe 差不得超过 15) —— 那是在没有实验数据时用定性趋势凑的代理。
-    # 现在有了 Composition_Dose.csv 的实测值, 这些代理全部作废: 靶值本身
-    # 就蕴含 Cr>Fe、Cr 随剂量下降、以及 3 dpa 时 Cr-Fe 的具体差值, 再叠一层
-    # 不等式只会和靶值打架。
-    if COMPOSITION_TARGETS is None:
-        composition = []
-    else:
-        composition = []
+    # 成分: 与实验测得的 at% 直接比。
+    composition = []
+    if COMPOSITION_TARGETS is not None:
         for i in range(len(rows)):
             composition.append((cr[i] - COMPOSITION_TARGETS[i][0]) / COMPOSITION_SCALE)
             composition.append((fe[i] - COMPOSITION_TARGETS[i][1]) / COMPOSITION_SCALE)
-    shape = []
+
+    # 趋势: Cr 必须随剂量单调下降。单边惩罚 —— 趋势对了代价为零, 反了才罚。
+    #
+    # 靶值本身确实蕴含这个趋势 (75.2 > 68.3 > 57.8), 但那是"到了靶值附近才
+    # 体现"; 离靶值还有二三十个 at% 的时候, 靶值残差对趋势的约束很弱, 一个
+    # Cr 反着往上涨的样本照样可能因为前沿好而排前面, 于是 CMA 朝错方向推。
+    # 这一项不花钱就能把搜索方向先摆正, 所以留着。
+    #
+    # 同批被删掉的另外两条不恢复:
+    #   Cr-Fe <= 15  —— 靶值处 Cr-Fe = 19.53, 留着等于让实验靶值自己不可行;
+    #   Cr > Si      —— Si 已从原子计数的分母里去掉 (SiO2 会溶解), 现在只是
+    #                   个诊断比值, 拿它做约束没有意义。
+    shape = [max(0.0, (cr[1] - cr[0]) / 2.0),
+             max(0.0, (cr[2] - cr[1]) / 2.0)] if len(rows) >= 3 else []
 
     inventory = np.array([float(row["Cr_atom_inventory"]) for row in rows])
     if not np.all(np.isfinite(inventory)) or inventory[0] <= 0:

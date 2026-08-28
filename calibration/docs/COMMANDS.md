@@ -187,6 +187,7 @@ MATFDM_RUN=$SCRATCH/matfdm_runs/ft5e-1 CALIB_POPULATION=40 \
 | `seed` | 20260804 | CMA 种子 (多链要给不同值) |
 | `composition_targets` | 由 csv 现算 | 实验成分靶值 `[[Cr%,Fe%], ...]`，每个剂量一对 |
 | `composition_tol` | 5 | 成分命中容差 at%（Cr 和 Fe 都要落在带内）|
+| `composition_scale` | 3 | 成分残差标尺 at%，越小权重越高；3 = 与前沿端点等权 |
 | `overrides` | `{}` | 覆盖 `p` 的任意字段 |
 
 ---
@@ -198,7 +199,19 @@ MATFDM_RUN=$SCRATCH/matfdm_runs/ft5e-1 CALIB_POPULATION=40 \
 | 指标 | 靶值来源 | 权重 |
 |---|---|---|
 | 前沿深度 nm | `config.json` 的 `targets` | 端点 `Δ/3`，0.5 dpa 带内 `Δ/6` |
-| 成分 at% | `Composition_Dose.csv` → `composition_targets` | `Δ/5`（`CALIB_COMPOSITION_SCALE` 可调）|
+| 成分 at% | `Composition_Dose.csv` → `composition_targets` | `Δ/composition_scale`，默认 `/3` |
+| Cr 随剂量的趋势 | 无（定性先验）| 单边惩罚：`max(0, Cr↑)/2`，趋势对了为 0 |
+
+`composition_scale` **越小成分权重越高**。前沿端点是 `/3`，所以默认 3 = 成分与前沿端点
+等权；设 5 则成分只有前沿的 0.6 倍。改它不用重编。
+
+**Cr 随剂量单调下降是单边惩罚**，趋势对了不花钱，反了才罚。靶值本身确实蕴含这个趋势
+（75.2 > 68.3 > 57.8），但那要到靶值附近才体现；离靶还有二三十 at% 时靶值残差对趋势
+的约束很弱，一个 Cr 反着涨的样本照样可能因为前沿好而排前面，把 CMA 带偏。这一项负责
+在早期把搜索方向摆正。
+
+另外两条同批删掉的旧约束**不恢复**：`Cr-Fe ≤ 15`（靶值处是 19.53，留着等于让实验靶值
+自己不可行）、`Cr > Si`（Si 已从原子计数分母里去掉，现在只是诊断比值）。
 
 成分口径：**分母 = Cr+Fe+Ni**。SiO2 会溶解，不占氧化物金属份额；Ni 留在分母里
 是为了和实验同口径。因为模型不产 Ni（Ni≡0），模型的 Cr%+Fe% 恒为 100%，而实验只有

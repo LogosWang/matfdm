@@ -125,7 +125,7 @@ def main() -> int:
           f"端点硬约束 ±{pc.ENDPOINT_BAND:g} nm")
     if tg:
         print("成分判据: 实验 at% (口径 Cr+Fe+Ni, SiO2 溶解不计), 命中容差 "
-              f"±{ctol:g} at%")
+              f"±{ctol:g} at%, 权重标尺 /{pc.COMPOSITION_SCALE:g} (前沿端点 /3)")
         print("          靶值 " + "  ".join(
             f"{d:g}dpa Cr {c:.1f}/Fe {f:.1f}" for (c, f), d in zip(tg, doses)))
         # 模型不产 Ni, Cr%+Fe% 恒为 100, 而实验靶值之和小于 100 —— 差额就是地板
