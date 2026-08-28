@@ -191,9 +191,14 @@ cmd_migrate() { local pat=${1:-'ft*'}; shift || true
       --pattern "$pat" "$@"; }
 cmd_stop()   { touch "$RUNS/${1:?}/calibration/STOP"; echo "已停 $1"; }
 cmd_resume() { rm -f "$RUNS/${1:?}/calibration/STOP"; echo "已解除 $1"; }
+# 清数据, 只留 config.json/provenance.txt。
+# leg_runtime.json 必须一起删: 它按 <tag>/dose<d> 记腿的累计耗时, 而全清重来后
+# case_tag 会从 b01_c01 重新开始, 正好撞上旧记录 —— 新腿一启动累计就已经超过
+# leg_timeout, 会被当场判成"算太久不收敛"。
 cmd_clean()  { local d="$RUNS/${1:?}"
   rm -rf "$d"/decouple "$d"/checkpoint \
-         "$d"/calibration/{metrics,logs,optimizer,state.json,DONE,DONE.stale.*,STOP,attempts.json}
+         "$d"/calibration/{metrics,logs,optimizer,state.json,DONE,DONE.stale.*,STOP} \
+         "$d"/calibration/{attempts.json,leg_runtime.json}
   mkdir -p "$d"/{decouple,checkpoint,calibration/metrics,calibration/optimizer,calibration/logs}
   echo "已清空 $1 的数据 (config.json 保留)"; }
 

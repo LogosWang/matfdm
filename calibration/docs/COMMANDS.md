@@ -183,6 +183,9 @@ MATFDM_RUN=$SCRATCH/matfdm_runs/ft5e-1 CALIB_POPULATION=40 \
 | `endpoint_tol` | 3 | 成功判据端点容差 nm |
 | `max_attempts` | 3 | 腿失败几次后熔断该 case |
 | `leg_timeout` | 0（不限）| 单腿**累计**计算时限 s；超时即判这组乘子不收敛，丢弃整个 case |
+
+`leg_timeout` 的累计耗时记在 `<run>/calibration/leg_runtime.json`，`mf clean` 会一并删掉
+——不删的话全清重来后 `case_tag` 又从 `b01_c01` 开始，撞上旧记录，新腿一启动累计就已超时。
 | `keep_traj` | false | 是否存 `*_timeseries.mat` (每腿 ~7 MB) |
 | `seed` | 20260804 | CMA 种子 (多链要给不同值) |
 | `composition_targets` | 由 csv 现算 | 实验成分靶值 `[[Cr%,Fe%], ...]`，每个剂量一对 |
@@ -296,6 +299,7 @@ txt 正文里每个 case 都有一行 `成分残差 : ΔCr ... ΔFe ... 最大|�
 mf stop ft5e-1                        # 该运行的节点空转退出
 mf resume ft5e-1
 mf clean ft5e-1                       # 清数据, 保留 config.json
+for d in $SCRATCH/matfdm_runs/ft*/; do mf clean "$(basename $d)"; done   # 全清
 touch $SCRATCH/matfdm_runs/ft*/calibration/STOP     # 全停
 squeue --me -h -o "%i %j" | awk '$2 ~ /^mn_ft/ {print $1}' | xargs -r scancel
 ```
