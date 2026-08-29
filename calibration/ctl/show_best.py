@@ -145,7 +145,6 @@ def main() -> int:
         front = [float(x["front_nm"]) for x in data]
         pct = [(float(x["Cr_atom_pct"]), float(x["Fe_atom_pct"]),
                 float(x["Si_atom_pct"])) for x in data]
-        inv = [float(x["Cr_atom_inventory"]) for x in data]
         print(f"#{rank}  {case['case_tag']}   fitness={r['fitness']:.4f}  "
               f"feasible={r['feasible']}")
         print(f"    前沿 nm   : {front[0]:7.2f} {front[1]:7.2f} {front[2]:7.2f}"
@@ -154,7 +153,7 @@ def main() -> int:
               + " ".join(f"{front[i]-ftg[i]:+7.2f}" for i in range(len(front))))
         for i, dose in enumerate((0, 0.5, 3)):
             line = (f"    {dose:>4} dpa  : Cr {pct[i][0]:5.1f}%  Fe {pct[i][1]:5.1f}%  "
-                    f"Si {pct[i][2]:5.1f}%   Cr库存 {inv[i]:.4g}")
+                    f"Si {pct[i][2]:5.1f}%")
             if tg and i < len(tg):
                 line += (f"   靶 {tg[i][0]:.1f}/{tg[i][1]:.1f}"
                          f"  Δ {pct[i][0]-tg[i][0]:+.1f}/{pct[i][1]-tg[i][1]:+.1f}")

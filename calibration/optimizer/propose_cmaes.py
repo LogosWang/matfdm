@@ -193,29 +193,20 @@ def residual_and_constraints(tag: str):
     shape = [max(0.0, (cr[1] - cr[0]) / 2.0),
              max(0.0, (cr[2] - cr[1]) / 2.0)] if len(rows) >= 3 else []
 
-    # 库存: 归一化的分母是 inventory[0]。它可能是 0 —— 一组乘子把氧化几乎完全
-    # 压住时, 全长积分出来的 Cr 就是 0。这里**绝不能抛异常**: evaluate_batch 会把
-    # 异常一路抛到 propose 失败, 而这个 case 明明有指标文件, gen_tool 的
-    # penalize-missing 只管"缺文件"的救不了它, 该变体会永久卡在同一代。
-    # 改为按最差处理: 单调项给满, 库存约束判违反, 落进不可行层, CMA 照常排序推进。
-    inventory = np.array([float(row["Cr_atom_inventory"]) for row in rows])
-    inv_ok = bool(np.all(np.isfinite(inventory)) and inventory[0] > 0)
-    if inv_ok:
-        monotonic = [max(0.0, (inventory[1] - inventory[0]) / inventory[0] * 50.0),
-                     max(0.0, (inventory[2] - inventory[1]) / inventory[0] * 50.0)]
-        inv_constraints = [(inventory[1] - inventory[0]) / inventory[0],
-                           (inventory[2] - inventory[1]) / inventory[0]]
-    else:
-        monotonic = [50.0, 50.0]          # 相当于库存翻倍上涨, 最差
-        inv_constraints = [1.0, 1.0]      # 正数 = 违反
-    residual = np.asarray(front + composition + reach + shape + monotonic)
+    # 库存(沿 GB 全长积分的 Cr 原子总量)已从标定里去掉。
+    # 它要求 Cr 总量随剂量单调下降, 但标定的目标是让前沿从 40 nm 长到 100 nm ——
+    # 氧化物长 2.5 倍, 里面的 Cr 原子总数必然跟着涨, 两个要求直接矛盾。实测:
+    # 端点已经进 ±5 nm 带的 330 个样本里, 满足这个约束的是 0 个, 可行性永远为 0。
+    # "Cr 被辐照消耗"的正确度量是浓度不是总量, 而浓度就是原子百分比 ——
+    # 实验靶值 75.2 -> 68.3 -> 57.8 已经把它精确写进去了, 外加 Cr 随剂量下降的
+    # 单边惩罚。用总量表达消耗, 等于把成分变化和氧化物体积增长混为一谈。
+    residual = np.asarray(front + composition + reach + shape)
 
-    # 硬约束只剩两类: Cr 库存必须随剂量单调下降, 端点前沿必须落在 band 内。
-    # 成分不再进硬约束 —— 它现在是与实测值的连续残差, 而且 Cr+Fe+Ni 口径下
-    # 残差有 0.9~3.9% 的地板 (模型不产 Ni), 任何"成分必须多准"的硬门槛都会
-    # 把整代样本一次性判成不可行, CMA 就没有排序信息可用了。
-    eps = 1.0e-6
-    constraints = [c + eps for c in inv_constraints]
+    # 硬约束两类: 前沿必须够得着取样深度 (够不着就没有成分可比), 端点前沿必须
+    # 落在 band 内。成分本身不进硬约束 —— 它是与实测值的连续残差, 而且
+    # Cr+Fe+Ni 口径下有 0.9~3.9% 的地板 (模型不产 Ni), 任何"成分必须多准"的
+    # 硬门槛都会把整代一次性判成不可行, CMA 就没有排序信息可用了。
+    constraints = []
     # 够不着取样深度 -> 硬约束违反 (成分数据无效, 不该和有效样本同层比较)
     constraints.extend(x / 10.0 for x in shortfall)
     # 端点硬约束: |front - target| <= ENDPOINT_BAND。放进 constraints 即进入
@@ -233,9 +224,7 @@ def residual_and_constraints(tag: str):
                                         nan=RESID_CLIP, posinf=RESID_CLIP,
                                         neginf=-RESID_CLIP),
                           -RESID_CLIP, RESID_CLIP)
-    feasible = bool(inv_ok
-                    and inventory[0] > inventory[1] > inventory[2]
-                    and abs(raw[0]) <= band
+    feasible = bool(abs(raw[0]) <= band
                     and abs(raw[2]) <= band
                     and max(shortfall) <= 0.0)
     return residual, constraints, feasible

@@ -49,7 +49,7 @@ COMPOSITION_TOL = float(os.environ.get("CALIB_COMPOSITION_TOL",
                                        _cfg("composition_tol", 5)))
 
 
-NEEDED = ("dose", "front_nm", "comp_depth_nm", "Cr_atom_inventory",
+NEEDED = ("dose", "front_nm", "comp_depth_nm",
           "Cr_atom_pct", "Fe_atom_pct", "Si_atom_pct")
 
 
@@ -87,14 +87,12 @@ def is_success(tag: str, tol: float) -> bool:
     if data is None:
         return False
     front = [float(r["front_nm"]) for r in data]
-    inv = [float(r["Cr_atom_inventory"]) for r in data]
     cr = [float(r["Cr_atom_pct"]) for r in data]
     fe = [float(r["Fe_atom_pct"]) for r in data]
     depth = [float(r.get("comp_depth_nm", 0) or 0) for r in data]
     ok_front = (abs(front[0] - 40.0) <= tol
                 and 60.0 <= front[1] <= MIDDLE_MAX
                 and abs(front[2] - 100.0) <= tol
-                and inv[0] > inv[1] > inv[2]
                 and all(f >= d for f, d in zip(front, depth)))   # 必须够得着取样深度
     if not ok_front:
         return False
