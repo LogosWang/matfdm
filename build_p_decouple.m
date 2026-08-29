@@ -52,7 +52,7 @@ p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 
 
-p.Dgb = 5e-4;  
+p.Dgb = 1e-9;  
 p.bypass = 1.0;
 p.bypass_threshold = 0.6;
 p.vc = 8e-6; p.vw = 2e-6;
