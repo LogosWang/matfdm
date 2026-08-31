@@ -61,12 +61,10 @@ end
 if ~exist(root,'dir'), mkdir(root); end
 fid = fopen(stamp, 'w');  fprintf(fid, '%s', want);  fclose(fid);
 
-vals = base .* mult;
-p.kCr = vals(1); p.kFe = vals(2); p.kSi = vals(3); p.kspin = vals(4);
-p.DCr2O3O = vals(5); p.DCr2O3 = p.DCr2O3O;
-p.DFe3O4 = vals(6); p.DFeCr2O4 = vals(7); p.DSiO2 = vals(8);
-p.DO0 = p.DSiO2;   % O 通道基底 = 非晶 SiO2 (随 mult(8) 一起被 CMA 调)
-p.kRobin = vals(9); p.E_mag = vals(10); p.case_tag = case_tag;
+% 乘子施加与两处绑定走 apply_mult —— 验证入口 run_verify_case 用的是同一份,
+% 免得改了一边忘了另一边。
+[p, vals] = apply_mult(p, mult);
+p.case_tag = case_tag;
 
 fprintf('[case] %s dose=%g  run=%s  eff=%g rOM=%g front_thick=%g\n', ...
         case_tag, dose, cfg.run_id, getdef(p,'eff',1), getdef(p,'rOM',1), cfg.front_thick);

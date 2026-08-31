@@ -8,6 +8,10 @@ function matfdm_run(varargin)
 %   子命令 (命令行参数都是字符串, 这里负责解析和转类型):
 %     leg      <rundir> <tag> <dose> <mult逗号分隔> [wallBudget秒]
 %              跑一条标定腿。退出码: 0=完成  10=墙钟到点已存断点  20=出错
+%     verify   <rundir> <tag> <dose> <mult逗号分隔> [氧化小时数] [采样点数]
+%              用标定选出的一组乘子跑一条长时氧化曲线 (默认 1500 h / 150 点),
+%              强制存 fields_timeseries.mat 供前沿-时间曲线用。
+%              退出码: 0=完成  10=墙钟到点已存断点  20=出错
 %     metrics  <rundir> <tag>
 %              抽这个 case 的三行指标。退出码: 0=成功  20=失败
 %     baseline <outfile.json>
@@ -28,6 +32,7 @@ args = varargin(2:end);
 try
     switch cmd
         case 'leg',      code = do_leg(args);
+        case 'verify',   code = do_verify(args);
         case 'metrics',  code = do_metrics(args);
         case 'baseline', code = do_baseline(args);
         case 'selftest', code = do_selftest(args);
@@ -76,6 +81,47 @@ elseif strcmp(status, 'wallclock')
     code = 10;
 else
     code = 20;
+end
+end
+
+% ===================================================================
+function code = do_verify(a)
+if numel(a) < 4
+    fprintf(2, '用法: matfdm_run verify <rundir> <tag> <dose> <mult> [小时] [采样点]\n');
+    code = 64; return
+end
+rundir = a{1};
+tag    = string(a{2});
+dose   = str2double(a{3});
+mult   = parse_vec(a{4});
+hours  = 1500;  nck = 150;
+if numel(a) >= 5 && ~isempty(strtrim(a{5})), hours = str2double(a{5}); end
+if numel(a) >= 6 && ~isempty(strtrim(a{6})), nck   = str2double(a{6}); end
+if isnan(dose) || numel(mult) ~= 10 || isnan(hours) || isnan(nck)
+    fprintf(2, 'dose/mult/小时/采样点 解析失败 (mult 要 10 个逗号分隔的数)\n');
+    code = 64; return
+end
+
+setenv('MATFDM_RUN', rundir);
+% 已经跑完的直接跳过 (幂等): 有时间序列且有末态剖面就算完成
+outdir = fullfile(rundir, 'decouple', char(tag), sprintf('dose%g', dose));
+if isfile(fullfile(outdir,'fields_timeseries.mat')) && ...
+   isfile(fullfile(outdir,'Cr2O3_final.csv')) && ...
+   isfile(fullfile(outdir,'_COMPLETE'))
+    fprintf('STATUS=complete (已完成, 跳过)\n'); code = 0; return
+end
+
+try
+    run_verify_case(tag, dose, mult, hours, nck);
+catch err
+    fprintf(2, 'VERIFY=fail %s\n%s\n', err.message, getReport(err,'extended'));
+    code = 20; return
+end
+
+if isfile(fullfile(outdir,'fields_timeseries.mat')) && isfile(fullfile(outdir,'_COMPLETE'))
+    fprintf('STATUS=complete\n'); code = 0;
+else
+    fprintf('STATUS=wallclock\n'); code = 10;   % 墙钟到点, 已存断点等续投
 end
 end
 
@@ -175,6 +221,7 @@ end
 function print_usage()
 fprintf(2, [ ...
  'matfdm_run leg      <rundir> <tag> <dose> <mult逗号分隔> [budget]\n' ...
+ 'matfdm_run verify   <rundir> <tag> <dose> <mult> [小时] [采样点]\n' ...
  'matfdm_run metrics  <rundir> <tag>\n' ...
  'matfdm_run baseline <outfile.json>\n' ...
  'matfdm_run selftest [rundir]\n']);
