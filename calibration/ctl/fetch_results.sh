@@ -72,7 +72,12 @@ for txt in "$OUT"/postprocess/*.txt; do
 
   # 远端逐个确认目录在不在 —— 被惩罚判死的 case 有指标但没有结果目录,
   # 直接 scp 会整条命令报错退出。一次 ssh 问清楚, 只取真实存在的。
-  have=$(ssh "${SSHOPT[@]}" "$REMOTE" "cd '$RUNS/$run/decouple' 2>/dev/null && ls -d $tags 2>/dev/null")
+  #
+  # tags 必须先转成空格分隔再插进命令串: 它本来是换行分隔的, 换行在远端
+  # shell 里是命令分隔符 —— 会变成 "ls -d 第一个" 加上 N-1 条"命令未找到",
+  # 结果每个运行只取回一个 case。
+  tags_sp=$(echo "$tags" | tr '\n' ' ')
+  have=$(ssh "${SSHOPT[@]}" "$REMOTE" "cd '$RUNS/$run/decouple' 2>/dev/null && ls -d $tags_sp 2>/dev/null")
   n=$(echo "$have" | grep -c . || true)
   if [[ "$n" == 0 ]]; then
     echo "  $run: 前 $TOP 名在远端都没有结果目录 (可能都是被判死的), 跳过"
@@ -90,7 +95,12 @@ for txt in "$OUT"/postprocess/*.txt; do
     metrics+=("$REMOTE:$RUNS/$run/calibration/metrics/$t.csv")
   done <<< "$have"
 
-  echo "  $run: $n 个 case"
+  want=$(echo "$tags" | grep -c .)
+  if [[ "$n" == "$want" ]]; then
+    echo "  $run: $n 个 case"
+  else
+    echo "  $run: $n 个 case (参数表里 $want 个, 有 $((want-n)) 个在远端没有结果目录)"
+  fi
   scp "${SSHOPT[@]}" -r "${srcs[@]}" "$OUT/$run/decouple/" \
     || echo "    !! decouple 传输有错" >&2
   scp "${SSHOPT[@]}" "${metrics[@]}" "$OUT/$run/calibration/metrics/" 2>/dev/null \
