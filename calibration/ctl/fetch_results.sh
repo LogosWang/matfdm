@@ -3,7 +3,8 @@
 #
 #   1. 按当天日期新建目标目录  <dest>/YYYYMMDD/
 #   2. 取回 postprocess 的 ft*.txt 参数表
-#   3. 读参数表里每个运行的前 N 名, 把这些 case 的结果目录也取回来
+#   3. 读参数表里每个运行的前 N 名, 把这些 case 的标定结果目录取回来
+#   4. 取回长时验证的结果 (前沿-时间曲线、对照图、末态剖面)
 #
 # 只认证一次: 开一个 SSH 主连接 (ControlMaster), 后面所有 scp 复用它。
 # 不这样的话每个 scp 都要重输一遍 Password+OTP, 十几个运行就是几十遍。
@@ -13,14 +14,19 @@
 #   ~/fetch_results.sh --top 20
 #   ~/fetch_results.sh --date 20260831
 #   ~/fetch_results.sh --dest "/Volumes/WZ_T9/RISconti/NERSC calibration"
+#   ~/fetch_results.sh --with-mat      # 连 fields_timeseries.mat 一起 (约 7 GB)
+#   ~/fetch_results.sh --no-verify     # 只取标定结果, 跳过长时验证
 
 set -uo pipefail
 
 REMOTE=${MATFDM_REMOTE:-wzhuo001@perlmutter.nersc.gov}
 RUNS=${MATFDM_REMOTE_RUNS:-/pscratch/sd/w/wzhuo001/matfdm_runs}
+VROOT=${MATFDM_REMOTE_VERIFY:-/pscratch/sd/w/wzhuo001/matfdm_verify}
 DEST="/Volumes/WZ_T9/RISconti/NERSC calibration"
 DATE=$(date +%Y%m%d)
 TOP=10
+VERIFY=1        # 取长时验证结果
+WITH_MAT=0      # 连 fields_timeseries.mat 一起 (每条 21 MB, 320 条约 6.7 GB)
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -28,7 +34,10 @@ while [[ $# -gt 0 ]]; do
     --date)   DATE=$2; shift 2;;
     --top)    TOP=$2;  shift 2;;
     --remote) REMOTE=$2; shift 2;;
-    -h|--help) sed -n '2,17p' "$0"; exit 0;;
+    --verify-root) VROOT=$2; shift 2;;
+    --no-verify)   VERIFY=0; shift;;
+    --with-mat)    WITH_MAT=1; shift;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0;;
     *) echo "未知选项: $1" >&2; exit 2;;
   esac
 done
@@ -36,7 +45,7 @@ done
 OUT="$DEST/$DATE"
 echo "远端: $REMOTE:$RUNS"
 echo "本地: $OUT"
-echo "取前 $TOP 名"
+echo "取前 $TOP 名   长时验证: $([[ $VERIFY == 1 ]] && echo "取 $([[ $WITH_MAT == 1 ]] && echo '(含时间序列 .mat)' || echo '(不含 .mat)')" || echo 跳过)"
 echo
 
 mkdir -p "$OUT" || exit 1
@@ -54,13 +63,13 @@ echo "已连上。"
 echo
 
 # ---- 1. 参数表 ----
-echo "[1/2] 取参数表 postprocess/"
+echo "[1/3] 取参数表 postprocess/"
 scp "${SSHOPT[@]}" -r "$REMOTE:$RUNS/postprocess" "$OUT/" || {
   echo "取参数表失败 —— 远端 $RUNS/postprocess 存在吗?" >&2; exit 1; }
 
 # ---- 2. 前 N 名的结果 ----
 echo
-echo "[2/2] 取前 $TOP 名的结果"
+echo "[2/3] 取前 $TOP 名的标定结果"
 total=0
 for txt in "$OUT"/postprocess/*.txt; do
   [[ -e "$txt" ]] || continue
@@ -109,6 +118,33 @@ for txt in "$OUT"/postprocess/*.txt; do
       "$REMOTE:$RUNS/$run/provenance.txt" "$OUT/$run/" 2>/dev/null || true
   total=$((total + n))
 done
+
+# ---- 3. 长时验证的结果 ----
+# 用 rsync 是因为要按文件名排除 fields_timeseries.mat —— scp 没有排除功能,
+# 而那个文件每条 21 MB、320 条就是 6.7 GB, 默认不该拖回来
+# (front_vs_time.csv 已经是从它算出来的)。
+if [[ $VERIFY == 1 ]]; then
+  echo
+  echo "[3/3] 取长时验证结果"
+  if ssh "${SSHOPT[@]}" "$REMOTE" "[[ -d '$VROOT' ]]"; then
+    EX=()
+    [[ $WITH_MAT == 0 ]] && EX=(--exclude='fields_timeseries.mat'
+                                --exclude='irr_timeseries.mat'
+                                --exclude='checkpoint')
+    mkdir -p "$OUT/verify"
+    if command -v rsync >/dev/null; then
+      rsync -a --info=progress2 -e "ssh ${SSHOPT[*]}" "${EX[@]}"             "$REMOTE:$VROOT/" "$OUT/verify/"         || echo "    !! 验证结果传输有错" >&2
+    else
+      echo "    本机没有 rsync, 退回 scp -r (会连 .mat 一起拖回来)"
+      scp "${SSHOPT[@]}" -r "$REMOTE:$VROOT/." "$OUT/verify/"         || echo "    !! 验证结果传输有错" >&2
+    fi
+    nfig=$(ls "$OUT"/verify/figures/*.png 2>/dev/null | wc -l | tr -d ' ')
+    ncur=$(find "$OUT/verify" -name front_vs_time.csv 2>/dev/null | wc -l | tr -d ' ')
+    echo "    对照图 $nfig 张, 前沿曲线 $ncur 条"
+  else
+    echo "    远端没有 $VROOT, 跳过 (还没跑过 mf verify?)"
+  fi
+fi
 
 echo
 echo "完成: $total 个 case -> $OUT"

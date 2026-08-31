@@ -329,8 +329,14 @@ chmod +x ~/fetch_results.sh
 ~/fetch_results.sh                       # 存到 <dest>/今天的日期/
 ~/fetch_results.sh --top 20              # 改成前 20 名
 ~/fetch_results.sh --date 20260831       # 指定日期目录 (补传用)
+~/fetch_results.sh --with-mat            # 连时间序列 .mat 一起 (约 7 GB)
+~/fetch_results.sh --no-verify           # 只取标定, 跳过长时验证
 ~/fetch_results.sh --dest "/Volumes/WZ_T9/RISconti/NERSC calibration"
 ```
+
+**长时验证的结果默认一起取。** 其中 `fields_timeseries.mat` 每条约 21 MB、320 条
+就是 6.7 GB，默认**不传**——前沿曲线 `front_vs_time.csv` 已经是从它算出来的。真要原始
+时间序列再加 `--with-mat`。断点目录同样不传。
 
 默认目标就是 `/Volumes/WZ_T9/RISconti/NERSC calibration`，日期自动取当天，
 所以通常直接 `~/fetch_results.sh` 就行，不用带任何参数。
@@ -347,14 +353,22 @@ chmod +x ~/fetch_results.sh
 
 ```
 <dest>/<日期>/
-├── postprocess/ft1e-4.txt ...       参数表
-└── ft1e-4/
-    ├── config.json  provenance.txt
-    ├── calibration/metrics/<tag>.csv
-    └── decouple/<tag>/dose{0,0.5,3}/
+├── postprocess/ft1e-4.txt ...           标定排名表
+├── ft1e-4/                              标定结果 (前 N 名)
+│   ├── config.json  provenance.txt
+│   ├── calibration/metrics/<tag>.csv
+│   └── decouple/<tag>/dose{0,0.5,3}/
+└── verify/                              长时验证结果
+    ├── figures/
+    │   ├── front_summary.csv            全部 case 的 MAE / RMSE (按 RMSE 排序)
+    │   └── front_vs_time_*.png / .pdf   前沿-时间对照图
+    └── ft1e-4/decouple/<tag>/dose{0.5,1.5}/
+        ├── front_vs_time.csv            前沿-时间曲线
+        └── *_final.csv                  末时刻剖面
 ```
 
-一个 case（三个剂量）约 4.6 MB，前十名 × 16 个变体约 740 MB。
+体积：标定一个 case（三个剂量）约 4.6 MB，前十名 × 16 变体约 740 MB；
+验证不含 `.mat` 时约 390 MB，含则约 7 GB。
 
 ---
 
