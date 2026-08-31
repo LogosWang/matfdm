@@ -483,7 +483,9 @@ mf migrate 'ft*' --apply                          # 真改; 数据原样保留
 ```
 代码 (只读, 一份)                        数据 ($SCRATCH/matfdm_runs/<id>/)
 matfdm/                                  <id>/
-├── build_p_decouple.m  基线参数           ├── config.json      唯一配置源
+├── build_p_decouple.m  基线参数
+├── apply_mult.m        乘子施加 (标定/验证共用)
+├── run_verify_case.m   验证入口 (长时氧化)           ├── config.json      唯一配置源
 ├── rhs_aks.m …         物理                ├── provenance.txt   commit + 配置快照
 ├── run_calibration_case.m 一条腿           ├── decouple/<case>/dose<d>/
 ├── run_root.m          数据根解析          ├── checkpoint/<case>/
@@ -501,6 +503,12 @@ matfdm/                                  <id>/
     │   ├── single_node.sh    单节点作业
     │   ├── run_generation.m  代循环 (回退, parpool)
     │   ├── lic_seat.sh       license 席位 (仅回退路线)
+    │   ├── VERIFY.sh        验证提交入口
+    │   ├── verify_plan.py   排名表 -> 任务清单 + 节点规划
+    │   ├── verify_job.sh    验证作业体
+    │   ├── verify_node.sh   每节点并发跑
+    │   ├── verify_fronts.py 前沿-时间曲线 vs 实验, 出图
+    │   ├── fetch_results.sh 取回结果到本地 (在 Mac 上跑)
     │   ├── run_id.py         扫描值 <-> 运行名
     │   ├── migrate_run_ids.py 老命名迁移
     │   ├── gen_tool.py       代级助手
