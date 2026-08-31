@@ -314,14 +314,28 @@ txt 正文里每个 case 都有一行 `成分残差 : ΔCr ... ΔFe ... 最大|�
 
 ### 取回结果到本地
 
-`calibration/ctl/fetch_results.sh` **在自己的 Mac 上跑**（不是在 NERSC 上）：
+脚本在 NERSC 上，但**要在自己的 Mac 上跑**（它是从 Mac 去拉 NERSC 的数据）。
+先拷过来一次：
 
 ```bash
-bash fetch_results.sh                    # 存到 <dest>/今天的日期/
-bash fetch_results.sh --top 20
-bash fetch_results.sh --date 20260831
-bash fetch_results.sh --dest "/Volumes/WZ_T9/RISconti/NERSC calibration"
+# 在 Mac 上, 只需做一次
+scp wzhuo001@perlmutter.nersc.gov:/pscratch/sd/w/wzhuo001/projects/matfdm/calibration/ctl/fetch_results.sh ~/
+chmod +x ~/fetch_results.sh
 ```
+
+以后每次要取结果，在 Mac 上：
+
+```bash
+~/fetch_results.sh                       # 存到 <dest>/今天的日期/
+~/fetch_results.sh --top 20              # 改成前 20 名
+~/fetch_results.sh --date 20260831       # 指定日期目录 (补传用)
+~/fetch_results.sh --dest "/Volumes/WZ_T9/RISconti/NERSC calibration"
+```
+
+默认目标就是 `/Volumes/WZ_T9/RISconti/NERSC calibration`，日期自动取当天，
+所以通常直接 `~/fetch_results.sh` 就行，不用带任何参数。
+
+改过脚本之后记得重新拷一次。
 
 先 scp 回 `postprocess/` 的参数表，再按表里每个运行的前 N 名把这些 case 的结果目录
 也取回来。取回后的结构：
