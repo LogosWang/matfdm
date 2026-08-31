@@ -312,6 +312,31 @@ txt 正文里每个 case 都有一行 `成分残差 : ΔCr ... ΔFe ... 最大|�
 
 **排序按扫描值的数值**,不是目录名字典序(`ft1e0`=1 在字典序里会排到 `ft2e-1`=0.2 前面)。
 
+### 取回结果到本地
+
+`calibration/ctl/fetch_results.sh` **在自己的 Mac 上跑**（不是在 NERSC 上）：
+
+```bash
+bash fetch_results.sh                    # 存到 <dest>/今天的日期/
+bash fetch_results.sh --top 20
+bash fetch_results.sh --date 20260831
+bash fetch_results.sh --dest "/Volumes/WZ_T9/RISconti/NERSC calibration"
+```
+
+先 scp 回 `postprocess/` 的参数表，再按表里每个运行的前 N 名把这些 case 的结果目录
+也取回来。取回后的结构：
+
+```
+<dest>/<日期>/
+├── postprocess/ft1e-4.txt ...       参数表
+└── ft1e-4/
+    ├── config.json  provenance.txt
+    ├── calibration/metrics/<tag>.csv
+    └── decouple/<tag>/dose{0,0.5,3}/
+```
+
+一个 case（三个剂量）约 4.6 MB，前十名 × 16 个变体约 740 MB。
+
 ---
 
 ## 六、停 / 续 / 清
