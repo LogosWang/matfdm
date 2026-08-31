@@ -74,13 +74,13 @@ p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.0004;  p.E_spin = 0;
 p.kRobin = 0.44;
 % O场(水归一)与金属(site fraction)的原子当量换算: rOM = C_O,ref/Nden
 % 满水通道 O 密度锚 ~33/87≈0.38; 稀载流子则 <<1。=1 完全还原旧行为。
-p.rOM = 22/87;
+p.rOM = 33/87;
 % ---- 数值 ----
 p.Lmin = 0.3;  p.epsP = 1e-5;  p.epsC = 1e-12;  p.tolNode = 1e-12;
 p.kdiss = 0;
  
 % ---- 物性 ----
-p.slab = 1;  p.DO0 = 0.05;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
+p.slab = 1;  p.DO0 = p.DSiO2;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
 p.NA = 6.02e23;  p.Nden = 87;
 p.Cr2O3den   = 5.22e-21;  p.Cr2O3mass   = 151.99;
 p.Fe3O4den   = 5.17e-21;  p.Fe3O4mass   = 231.53;
