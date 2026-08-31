@@ -11,6 +11,8 @@
 #   status [id]                         进度总览
 #   best   <id> [n]                     前 n 名及参数绝对值
 #   export [模式] [n] [输出目录]         每个运行的前 n 名各导一个 txt (后处理)
+#   verify                              用各 ft 的前 N 名跑长时氧化曲线 (提交作业)
+#   fronts [验证数据根]                  算前沿-时间曲线与实验的对照, 出图
 #   stop / resume / clean <id>
 #
 # 例 —— 30 个前沿阈值, 30 节点一个作业, 排 4 轮接力:
@@ -190,6 +192,10 @@ cmd_export() { local pat=${1:-'ft*'}; local n=${2:-10}; local out=${3:-}
 cmd_migrate() { local pat=${1:-'ft*'}; shift || true
   MATFDM_RUNS="$RUNS" py "$CODE/calibration/ctl/migrate_run_ids.py" \
       --pattern "$pat" "$@"; }
+# 验证: 用标定选出的前 N 名参数跑长时氧化, 与实验前沿对照
+cmd_verify() { bash "$CODE/calibration/ctl/VERIFY.sh" "$@"; }
+cmd_fronts() { local root=${1:-${MATFDM_VERIFY:-$SCRATCH/matfdm_verify}}; shift || true
+  py "$CODE/calibration/ctl/verify_fronts.py" --root "$root" "$@"; }
 cmd_stop()   { touch "$RUNS/${1:?}/calibration/STOP"; echo "已停 $1"; }
 cmd_resume() { rm -f "$RUNS/${1:?}/calibration/STOP"; echo "已解除 $1"; }
 # 清数据, 只留 config.json/provenance.txt。
@@ -214,8 +220,10 @@ case "${1:-}" in
   status) shift; cmd_status "$@" ;;
   best)   shift; cmd_best   "$@" ;;
   export) shift; cmd_export "$@" ;;
+  verify) shift; cmd_verify "$@" ;;
+  fronts) shift; cmd_fronts "$@" ;;
   stop)   shift; cmd_stop   "$@" ;;
   resume) shift; cmd_resume "$@" ;;
   clean)  shift; cmd_clean  "$@" ;;
-  *) sed -n '2,27p' "${BASH_SOURCE[0]}"; exit 2 ;;
+  *) sed -n '2,29p' "${BASH_SOURCE[0]}"; exit 2 ;;
 esac

@@ -358,7 +358,74 @@ chmod +x ~/fetch_results.sh
 
 ---
 
-## 六、停 / 续 / 清
+## 六、验证：长时氧化曲线 vs 实验前沿
+
+标定给出的是三个剂量点上的前沿深度和成分。**验证**换个角度看同一组参数：拿每个 ft
+排名前 N 的参数，跑 1500 h 的长时氧化（150 个采样点），把**前沿随时间的演化**和实验
+测的时间序列比。实验数据在 `calibration/Oxidationfront_Time{0.5,1.5}dpa.csv`。
+
+```bash
+mf verify                    # 提交验证作业 (设置在 calibration/ctl/VERIFY.sh 顶部)
+mf fronts                    # 跑完之后算对照 + 出图
+mf fronts $SCRATCH/matfdm_verify --ox-target 0.001    # 强制统一阈值 (一般不用)
+```
+
+### VERIFY.sh 设置区
+
+```bash
+WALLTIME=12:00:00     # 1500 h 氧化比标定的 500 h 长约 3 倍
+NJOBS=4               # 接力轮数 (断点续算)
+RUNS=$SCRATCH/matfdm_runs      # 标定数据根 (排名表和乘子从这里读)
+VROOT=$SCRATCH/matfdm_verify   # 验证数据根
+TOP=10                # 每个 ft 取前几名
+DOSES=0.5,1.5         # 要跑的剂量 (要有对应的实验 csv)
+OXI_HOURS=1500        # 氧化时长
+NUM_CKPT=150          # 采样点数 = 前沿-时间曲线的点数
+PER_NODE=110          # 每节点并发几条
+```
+
+### 节点怎么分
+
+任务数 = 剂量数 × 运行数 × TOP = **2 × 16 × 10 = 320**。每条腿单线程、约 1.8 GB：
+
+| 约束 | 上限 |
+|---|---|
+| 物理核 | 128 / 节点 ← **瓶颈** |
+| 内存 | 503 GB ÷ 1.8 GB ≈ 270 / 节点 |
+
+`PER_NODE=110` 留了余量，`VERIFY.sh` 自动算出 **3 节点 × 107 条**（内存 193/503 GB、
+核 107/128）。改 `TOP` 或 `DOSES` 后节点数自动跟着变，不用手改 `-N`。
+
+### 前沿阈值用各自的
+
+**16 个 ft 变体扫的就是前沿定义**（`front_thick` 从 1e-4 到 1.0），所以 `mf fronts`
+默认给每个运行用它**自己** `config.json` 里的 `front_thick`，而不是一个全局阈值。
+用统一阈值等于把这次扫描的意义抹掉了。
+
+前沿的取法与 `calibration/postprocess_GB_oxidation.ipynb` 逐字一致：沿 GB 深度自开口
+起，总氧化物厚度剖面**首次**跌破阈值处，线性插值到亚网格。不能取"全域最接近阈值的
+点"——剖面尾部受零通量边界影响会轻微回升，那样会跳到 GB 末端。
+
+### 产出
+
+```
+$SCRATCH/matfdm_verify/
+├── tasks.tsv                                    任务清单
+├── node-<作业号>-r<k>.log                        每节点日志
+├── ft4e-1/decouple/<tag>/dose0.5/
+│   ├── fields_timeseries.mat                    时间序列 (前沿曲线的来源)
+│   ├── front_vs_time.csv                        该 case 的前沿-时间曲线
+│   └── *_final.csv                              末时刻剖面
+└── figures/
+    ├── front_summary.csv                        全部 case 的 MAE / RMSE 汇总
+    └── front_vs_time_<run>_<tag>_dose<d>dpa.{png,pdf}
+```
+
+`front_summary.csv` 按 RMSE 排序，一眼能看出哪个 ft 定义 + 哪组参数最贴实验。
+
+---
+
+## 七、停 / 续 / 清
 
 ```bash
 mf stop ft5e-1                        # 该运行的节点空转退出
@@ -389,7 +456,7 @@ squeue --me -h -o "%i %j" | awk '$2 ~ /^mn_ft/ {print $1}' | xargs -r scancel
 
 ---
 
-## 七、运行目录怎么命名:统一科学计数法
+## 八、运行目录怎么命名:统一科学计数法
 
 扫描值一律编成 **`<尾数>e<指数>`**(尾数归一到 `[1,10)` 去尾随零):
 
@@ -411,7 +478,7 @@ mf migrate 'ft*' --apply                          # 真改; 数据原样保留
 
 ---
 
-## 八、结构
+## 九、结构
 
 ```
 代码 (只读, 一份)                        数据 ($SCRATCH/matfdm_runs/<id>/)
@@ -464,7 +531,7 @@ $SCRATCH/matfdm_build/CURRENT/      编译产物
 
 ---
 
-## 九、故障对照
+## 十、故障对照
 
 | 现象 | 处理 |
 |---|---|

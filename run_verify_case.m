@@ -43,6 +43,9 @@ p.case_tag  = case_tag;
 p.oxi_time  = oxi_hours * 3600;
 p.num_ckpt  = num_ckpt;
 p.keep_traj = true;            % 时间序列是这次的目的, 必须留
+% run_ckpt_decouple 末尾按 10*num_output+1 抽样存轨迹; 默认 num_output=10 只存
+% 101 点, num_ckpt=150 时会丢掉三分之一。让它取满, 前沿-时间曲线用上每个采样点。
+p.num_output = max(1, ceil(num_ckpt / 10));
 
 % ---- 参数指纹: 改了任何影响物理的东西, 旧结果自动作废重算 ----
 extra = [getdef(p,'eff',1), getdef(p,'rOM',1), getdef(p,'slab',1), getdef(p,'DO0',NaN), ...

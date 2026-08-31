@@ -86,8 +86,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", required=True, help="验证数据根 (下面是 <run>/<tag>/decouple/...)")
     ap.add_argument("--out", default="", help="图表输出目录 (默认 <root>/figures)")
-    ap.add_argument("--ox-target", type=float, default=0.001,
-                    help="前沿阈值: 总氧化物厚度 nm (notebook 默认 0.001)")
+    ap.add_argument("--ox-target", type=float, default=None,
+                    help="强制用同一个前沿阈值 nm; 不给则各运行用自己 config.json "
+                         "里的 front_thick —— 16 个 ft 变体本来就是不同的前沿定义")
     ap.add_argument("--no-plot", action="store_true")
     args = ap.parse_args()
 
@@ -105,6 +106,16 @@ def main() -> int:
     rows = []
     # 布局: <root>/<ftXXX>/decouple/<tag>/dose<d>/fields_timeseries.mat
     for rundir in sorted(p for p in root.iterdir() if p.is_dir() and p.name != "figures"):
+        # 前沿阈值: 各运行用自己的 front_thick。16 个 ft 变体扫的就是这个量
+        # (1e-4 ~ 1.0), 用一个全局阈值去算等于把这次扫描的意义抹掉。
+        thr = args.ox_target
+        if thr is None:
+            cfgf = rundir / "config.json"
+            try:
+                thr = float(json.loads(cfgf.read_text())["front_thick"])
+            except (OSError, ValueError, KeyError):
+                print(f"  ! {rundir.name}: 读不到 front_thick, 跳过", file=sys.stderr)
+                continue
         for tagdir in sorted((rundir / "decouple").glob("*")) if (rundir / "decouple").is_dir() else []:
             if not tagdir.is_dir():
                 continue
@@ -122,7 +133,7 @@ def main() -> int:
                     print(f"  ! {rundir.name}/{tagdir.name}/{dd.name}: 读不了 ({e})", file=sys.stderr)
                     continue
 
-                fr = np.array([front_depth(y, prof, args.ox_target, L) for prof in total_t])
+                fr = np.array([front_depth(y, prof, thr, L) for prof in total_t])
                 exp = load_exp(root, dose)
                 mae = rmse = float("nan")
                 if exp is not None:
@@ -132,7 +143,8 @@ def main() -> int:
                     rmse = float(np.sqrt((err ** 2).mean()))
 
                 rows.append(dict(run=rundir.name, case=tagdir.name, dose=dose,
-                                 t_end_h=float(t[-1]), front_end_nm=float(fr[-1]),
+                                 front_thick=thr, t_end_h=float(t[-1]),
+                                 front_end_nm=float(fr[-1]),
                                  L_GB=float(L), mae_nm=mae, rmse_nm=rmse))
 
                 np.savetxt(dd / "front_vs_time.csv",
@@ -155,7 +167,8 @@ def main() -> int:
                 ax.set_ylabel("Oxidation front depth (nm)")
                 ax.set_xlim(0, max(t[-1], exp[-1, 0] if exp is not None else 0) * 1.02)
                 ax.set_ylim(0, L * 1.05)
-                ttl = f"{rundir.name} / {tagdir.name}   {dose:g} dpa"
+                ttl = (f"{rundir.name} / {tagdir.name}   {dose:g} dpa"
+                       f"   (front: total oxide = {thr:g} nm)")
                 if np.isfinite(mae):
                     ttl += f"   MAE {mae:.1f} nm"
                 ax.set_title(ttl, fontsize=8)
@@ -171,16 +184,17 @@ def main() -> int:
 
     rows.sort(key=lambda r: (r["run"], r["dose"], r["rmse_nm"]
                              if np.isfinite(r["rmse_nm"]) else 1e9))
-    hdr = ["run", "case", "dose", "t_end_h", "front_end_nm", "L_GB", "mae_nm", "rmse_nm"]
+    hdr = ["run", "case", "dose", "front_thick", "t_end_h", "front_end_nm",
+           "L_GB", "mae_nm", "rmse_nm"]
     with (out / "front_summary.csv").open("w") as f:
         f.write(",".join(hdr) + "\n")
         for r in rows:
             f.write(",".join(f"{r[k]:.6g}" if isinstance(r[k], float) else str(r[k])
                              for k in hdr) + "\n")
 
-    print(f"{'run':10s}{'case':16s}{'dpa':>5}{'末前沿':>9}{'MAE':>8}{'RMSE':>8}")
+    print(f"{'run':10s}{'case':16s}{'dpa':>5}{'阈值':>9}{'末前沿':>9}{'MAE':>8}{'RMSE':>8}")
     for r in rows:
-        print(f"{r['run']:10s}{r['case']:16s}{r['dose']:5g}"
+        print(f"{r['run']:10s}{r['case']:16s}{r['dose']:5g}{r['front_thick']:9g}"
               f"{r['front_end_nm']:9.1f}{r['mae_nm']:8.2f}{r['rmse_nm']:8.2f}")
     print(f"\n{len(rows)} 条曲线 -> {out}")
     return 0
