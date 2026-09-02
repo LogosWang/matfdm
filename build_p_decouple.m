@@ -8,11 +8,11 @@ p.ny    = 150;
  
 p.dt          = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;
-p.dx    = 2;
+p.dx    = 0.3;
 p.dy    = 1;
 % p.t_end = 1e7;
 
-p.num_ckpt = 50;
+p.num_ckpt = 200;
 p.num_output = 10;
 
 % ---- 缺陷场 ----
