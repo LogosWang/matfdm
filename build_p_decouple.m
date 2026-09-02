@@ -8,11 +8,11 @@ p.ny    = 150;
  
 p.dt          = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;
-p.dx    = 2;
+p.dx    = 0.3;
 p.dy    = 1;
 % p.t_end = 1e7;
 
-p.num_ckpt = 50;
+p.num_ckpt = 100;
 p.num_output = 10;
 
 % ---- 缺陷场 ----
@@ -52,26 +52,31 @@ p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 
 
-p.Dgb = 5e-4;  
+% p.Dgb = 5e-6;  
 p.bypass = 1.0;
 p.bypass_threshold = 0.6;
 p.vc = 8e-6; p.vw = 2e-6;
 
 
+
+p.M_ex  = 1e-3;              % PBR 应变梯度驱动的 Ni 挤出迁移率 = kappa*K/eta
+                             % 量纲同原 p.Dgb (长度^2/时间), 参与标定
+p.phi_w = 1e-3 * p.Ni_init;  % softplus 正则化宽度, 纯数值参数, 不参与标定
+
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
-p.DCr2O3O  = 6e-4;      % O 穿内层
+p.DCr2O3O  = 1.8e-4;      % O 穿内层
 % p.DCr2O3Fe = 5e-5;      % Fe 穿内层
 % p.DCr2O3Ni = 5e-6;      % Ni 穿内层 (< Fe)
 % p.DOout    = 0.001;      % O 穿外层
 % calc_DO 沿GB通道节流组 (与穿膜组物理不同, 独立)
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 0.08;  p.DFeCr2O4 = 0.01;  p.DSiO2 = 0.3;
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 0.0126;  p.DFeCr2O4 = 0.01;  p.DSiO2 = 0.054;
  
 % ---- 界面动力学 (nm/s) ----
-p.kCr = 0.01;  p.kSi = 0.0002;  p.kFe = 4.22e-5;  p.kspin = 0.0002;
+p.kCr = 0.328932;  p.kSi = 0.00022908;  p.kFe = 1.5614e-5;  p.kspin = 0.000885153;
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
-p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.004;  p.E_spin = 0;
-p.kRobin = 0.44;
+p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.000214;  p.E_spin = 0;
+p.kRobin = 1.0744;
 % O场(水归一)与金属(site fraction)的原子当量换算: rOM = C_O,ref/Nden
 % 满水通道 O 密度锚 ~33/87≈0.38; 稀载流子则 <<1。=1 完全还原旧行为。
 p.rOM = 22/87;
@@ -80,7 +85,7 @@ p.Lmin = 0.3;  p.epsP = 1e-5;  p.epsC = 1e-12;  p.tolNode = 1e-12;
 p.kdiss = 0;
  
 % ---- 物性 ----
-p.slab = 1;  p.DO0 = 0.05;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
+p.slab = 1;  p.DO0 = p.DSiO2;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
 p.NA = 6.02e23;  p.Nden = 87;
 p.Cr2O3den   = 5.22e-21;  p.Cr2O3mass   = 151.99;
 p.Fe3O4den   = 5.17e-21;  p.Fe3O4mass   = 231.53;
