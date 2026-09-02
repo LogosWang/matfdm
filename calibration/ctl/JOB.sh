@@ -6,7 +6,7 @@
 
 # ------------------------------ 设置区 --------------------------------------
 ACCOUNT=m5181                       # SLURM 账号
-WALLTIME=08:00:00
+WALLTIME=12:00:00
 NJOBS=20
 QOS=regular                         # regular / debug / preempt
 
@@ -38,10 +38,15 @@ MIDDLE_MAX=70                       # 0.5 dpa 软带上限 nm
 ENDPOINT_BAND=5                     # 端点硬约束 nm (超出判不可行)
 ENDPOINT_TOL=3                      # 成功判据端点容差 nm
 MAX_ATTEMPTS=3                      # 腿失败几次熔断该 case
-LEG_TIMEOUT=14400                   # 单腿累计计算时限 s (0=不限)。超时即判这组乘子
+LEG_TIMEOUT=25200                   # 单腿累计计算时限 s (0=不限)。超时即判这组乘子
                                     # 不收敛, 整个 case 丢弃 —— 腿慢本身就是走到了
                                     # 刚性区域的信号, 磨下去只会拖住整代。
                                     # 跨作业累加: 被墙钟打断后续算, 时间接着记。
+                                    # 2026-09-02 实测 (dx=0.3, num_ckpt=200, 120 条满载):
+                                    #   第 1 窗 182 s (含 MCR 启动+辐照段), 后续 63 s/窗,
+                                    #   200 窗 = 3.53 h。取 2 倍余量 -> 7 h。
+                                    # 改 dx / num_ckpt / 网格后必须重测: 时限设小了,
+                                    # 整代好样本会被判成"不收敛"全部丢弃。
 KEEP_TRAJ=false                     # 是否存 *_timeseries.mat (每腿 ~7 MB)
 SEED=20260804                       # CMA 种子
 
