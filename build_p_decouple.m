@@ -12,7 +12,7 @@ p.dx    = 0.3;
 p.dy    = 1;
 % p.t_end = 1e7;
 
-p.num_ckpt = 200;
+p.num_ckpt = 100;
 p.num_output = 10;
 
 % ---- 缺陷场 ----
@@ -49,15 +49,6 @@ p.Si_init = 0.0027;   p.Si_DCB = 0.0027;
 p.O_init  = 0.0;   p.O_DCB  = 1.0;
 p.Cr2O3_init = 0.0;  p.Fe3O4_init = 0.0;
 p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
-
-
-
-% Ni 晶界排出。rhs_aks.m:128-130 仍在活跃调用 (F -> dNi_gb -> J_r_gb,
-% 最终进 lattice_velocity_x), 字段不能删; 1e-9 使其贡献可忽略 = 实质关闭。
-p.Dgb = 1e-9;
-p.bypass = 1.0;
-p.bypass_threshold = 0.6;
-p.vc = 8e-6; p.vw = 2e-6;
 
 
 
