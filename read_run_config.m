@@ -33,7 +33,11 @@ cfg = setdef(cfg, 'workers',       120);
 cfg = setdef(cfg, 'middle_max',    70);       % 0.5 dpa 软带上限 nm
 cfg = setdef(cfg, 'endpoint_band', 5);        % 端点硬约束 nm
 cfg = setdef(cfg, 'endpoint_tol',  3);        % 成功判据端点容差 nm
-% 成分取样深度 nm, 每个剂量一个 —— 与实验取样位置一致
+% 成分取样位置。两种口径, frac 优先:
+%   composition_depth_frac  相对: 取样深度 = 该剂量算出的前沿 x 这个比例
+%   composition_depth       绝对: 固定深度 nm (frac 为空时才用)
+% 比例来自实验: 取样深度 / 靶前沿 = 23/40, 30/60, 44/100
+cfg = setdef(cfg, 'composition_depth_frac', [0.575; 0.5; 0.44]);
 cfg = setdef(cfg, 'composition_depth', [23; 30; 44]);
 cfg = setdef(cfg, 'max_attempts',  3);
 cfg = setdef(cfg, 'keep_traj',     false);

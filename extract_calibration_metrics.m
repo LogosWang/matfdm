@@ -16,7 +16,8 @@ function metrics = extract_calibration_metrics(case_tag)
 %     成分在 cfg.composition_depth 指定的深度上就地取样 (每个剂量一个深度,
 %     与实验取样位置一致), 不再沿整条 GB 积分 —— 全长积分等于把前沿以内所有
 %     深度混在一起平均, 和实验在某个固定深度上测的根本不是一回事。
-%     取样深度处没有氧化物 (前沿还没推到那里) 时 at% 全部记 0, 由目标函数重罚。
+%     相对口径下取样点必在前沿以内, 不存在"够不着"; 只有前沿为 0 (完全没成膜)
+%     时 at% 才记 0, 由目标函数重罚。
 %     库存 (metal_atom_inventory) 仍然是全长积分 —— 它约束的是氧化物里 Cr 的
 %     总量随剂量单调下降, 本来就该是个全局量。
 %
@@ -28,10 +29,24 @@ root0 = run_root();
 doses  = cfg.doses(:)';
 target = cfg.targets(:)';
 TH     = cfg.front_thick;
-depth  = cfg.composition_depth(:)';        % 成分取样深度 nm, 每个剂量一个
-if numel(depth) < numel(doses)
+% 成分取样位置: 相对口径优先 (取样深度 = 该剂量算出的前沿 x 比例)。
+% 为什么用相对: 模型的前沿位置本身在几十纳米范围内浮动, 固定深度 23/30/44 nm
+% 在前沿 40 nm 的样本上是"氧化层中段", 在前沿 90 nm 的样本上就成了"靠近开口的
+% 表层" —— 取的根本不是同一个结构位置, 成分自然没法比。按前沿的比例取样, 不管
+% 前沿深浅都落在氧化层的同一相对位置上。
+% 比例来自实验本身: 23/40, 30/60, 44/100 (模型打中靶前沿时就等于实验取样位置)。
+dfrac = [];
+if isfield(cfg,'composition_depth_frac') && ~isempty(cfg.composition_depth_frac)
+    dfrac = cfg.composition_depth_frac(:)';
+end
+depth = cfg.composition_depth(:)';         % 绝对深度 nm (仅 frac 为空时用)
+if isempty(dfrac) && numel(depth) < numel(doses)
     error('extract:depth', 'composition_depth 只有 %d 项, 剂量有 %d 个', ...
           numel(depth), numel(doses));
+end
+if ~isempty(dfrac) && numel(dfrac) < numel(doses)
+    error('extract:depth', 'composition_depth_frac 只有 %d 项, 剂量有 %d 个', ...
+          numel(dfrac), numel(doses));
 end
 names  = {'Cr2O3','Fe3O4','FeCr2O4','SiO2'};
 nD     = numel(doses);
@@ -75,8 +90,12 @@ for i = 1:nD
     % Cr2O3->2Cr, FeCr2O4->2Cr+1Fe, Fe3O4->3Fe, SiO2->1Si; Ni 不进氧化物
     atoms = [2*fu(1)+2*fu(3), 3*fu(2)+fu(3), fu(4), 0];   % Cr, Fe, Si, Ni
 
-    % ---- 成分: 在实验的取样深度上就地取样 ----
-    zs = depth(i);
+    % ---- 成分: 在取样位置就地取样 ----
+    if ~isempty(dfrac)
+        zs = dfrac(i) * front;     % 相对: 前沿的固定比例处
+    else
+        zs = depth(i);             % 绝对: 固定深度
+    end
     zg = (0:size(profiles,1)-1)';         % GB 深度坐标 nm (dy = 1)
     local  = interp1(zg, profiles, zs, 'linear', 0);      % 越界给 0
     lfu    = local(:)' .* rho_over_M;
