@@ -251,7 +251,34 @@ python3 calibration/ctl/comp_targets.py --basis crfe    # 换成把 Ni 归一化
 **两者都不用重编** —— 模型 Ni≡0，所以 MATLAB 算的 `Cr/(Cr+Fe+Ni)` 与 `Cr/(Cr+Fe)` 恒等，
 口径差别全在 config 里的靶值上。
 
-硬约束两类：前沿够得着取样深度、端点前沿落在 `endpoint_band` 内。成分**不进硬约束**：
+### 定量走残差，定性走约束
+
+目标函数分两层，分工是硬性的：
+
+| | 放什么 | 作用 |
+|---|---|---|
+| `residual` | **定量偏差**：前沿差多少 nm、成分差多少 at% | 连续，CMA 的梯度全靠它 |
+| `constraints` | **定性反号**：趋势走反了、根本没成膜 | 进 lexicographic 分层，一票压到底 |
+
+**定量的东西绝不能进 `constraints`。** 曾经端点带 ±5 nm 和「够不着取样深度」都是硬约束，
+结果 `fitness = 1e6 + 1000×violation + objective` 里，`1000×violation` 的代内极差达到
+**4e9**，而装着全部成分信息的 `objective` 只有 **2e3**——差 6 个数量级。实测只有 6.7%
+的样本对会被 `objective` 翻转顺序，等于成分标定根本没在起作用。定量差异一旦进 violation，
+就被 `平方 × CONSTRAINT_PENALTY × 1000` 放大到压倒一切。
+
+现在的 `constraints` 只有五条，全是定性的：
+
+```
+前沿必须随剂量变深   front[0] <= front[1] <= front[2]
+Cr 必须随剂量下降    cr[0] >= cr[1] >= cr[2]
+必须成膜             min(front) > 0
+```
+
+**`feasible` 的含义随之改变**：它现在是「定性上没犯错」，不是「定量达标」。改动后
+现有 5200 个样本里 87% 可行（旧判据是 0）。真正的命中判据在 `gen_tool.is_success`
+（端点 ±`endpoint_tol` nm + 成分 ±`composition_tol` at%），那个没动。
+
+成分**不进硬约束**：
 有那个地板在，任何“成分必须多准”的硬门槛都会把整代样本一次判成不可行，CMA 就没排序信息了。
 
 ---

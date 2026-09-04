@@ -139,7 +139,9 @@ def main() -> int:
                   + "/".join(f"{x:.2f}" for x in floor) + " at% (缺的是 Ni)")
     else:
         print("成分判据: 未配置 composition_targets, 本次只标前沿")
-    print(f"可行 {sum(1 for r, _, _ in recs if r['feasible'])}/{len(recs)}\n")
+    print(f"可行 {sum(1 for r, _, _ in recs if r['feasible'])}/{len(recs)}"
+          "   (可行 = 定性没犯错: 前沿随剂量变深、Cr 随剂量下降、已成膜;"
+          " 定量是否命中看 mf status 的 DONE)\n")
 
     for rank, (r, case, data) in enumerate(top, 1):
         front = [float(x["front_nm"]) for x in data]

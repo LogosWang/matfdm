@@ -169,54 +169,33 @@ def residual_and_constraints(tag: str):
             composition.append((cr[i] - COMPOSITION_TARGETS[i][0]) / COMPOSITION_SCALE)
             composition.append((fe[i] - COMPOSITION_TARGETS[i][1]) / COMPOSITION_SCALE)
 
-    # 前沿没推到取样深度 = 那里根本没有氧化物, 成分无从谈起 (MATLAB 侧 at% 记 0)。
-    # 这种样本不能只按"成分差得远"来罚 —— 它压根没有可比的量, 而且 at%=0 算出来的
-    # 残差是有界的, 反而可能比一个真跑到深度但成分不准的样本还好看。所以:
-    #   1) 残差里按"差多少纳米才够得着"给一项, 提供把前沿往深推的梯度;
-    #   2) 同时进硬约束, 落进不可行层, 排在所有够得着的样本之后。
-    depths = [float(row.get("comp_depth_nm", 0) or 0) for row in rows]
-    fronts = [float(row["front_nm"]) for row in rows]
-    shortfall = [max(0.0, dep - fr) for dep, fr in zip(depths, fronts)]
-    reach = [x / 2.0 for x in shortfall]
-
-    # 趋势: Cr 必须随剂量单调下降。单边惩罚 —— 趋势对了代价为零, 反了才罚。
+    # ---- 定量 vs 定性的分工 (2026-09-04 重构) ----
+    # residual    只放**定量**偏差: 前沿差多少 nm、成分差多少 at%。连续可导,
+    #             CMA 的梯度全靠它。
+    # constraints 只放**定性反号**: 趋势走反了、根本没成膜。它进 lexicographic
+    #             分层, 一票把样本压到底, 不表达"差多少"。
     #
-    # 靶值本身确实蕴含这个趋势 (75.2 > 68.3 > 57.8), 但那是"到了靶值附近才
-    # 体现"; 离靶值还有二三十个 at% 的时候, 靶值残差对趋势的约束很弱, 一个
-    # Cr 反着往上涨的样本照样可能因为前沿好而排前面, 于是 CMA 朝错方向推。
-    # 这一项不花钱就能把搜索方向先摆正, 所以留着。
-    #
-    # 同批被删掉的另外两条不恢复:
-    #   Cr-Fe <= 15  —— 靶值处 Cr-Fe = 19.53, 留着等于让实验靶值自己不可行;
-    #   Cr > Si      —— Si 已从原子计数的分母里去掉 (SiO2 会溶解), 现在只是
-    #                   个诊断比值, 拿它做约束没有意义。
-    shape = [max(0.0, (cr[1] - cr[0]) / 2.0),
-             max(0.0, (cr[2] - cr[1]) / 2.0)] if len(rows) >= 3 else []
+    # 为什么这么分: 原来端点带 ±5 nm 和"够不着取样深度"都是硬约束, 于是
+    # fitness = 1e6 + 1000*violation + objective 里, 1000*violation 的代内极差
+    # 达到 4e9, 而装着全部成分信息的 objective 只有 2e3 —— 差 6 个数量级。
+    # 实测只有 6.7% 的样本对会被 objective 翻转顺序, 等于成分标定根本没在起作用。
+    # 定量的东西一旦进 violation, 就被平方 x CONSTRAINT_PENALTY x 1000 放大到压倒一切。
+    fr = [float(row["front_nm"]) for row in rows]
+    residual = np.asarray(front + composition)
 
-    # 库存(沿 GB 全长积分的 Cr 原子总量)已从标定里去掉。
-    # 它要求 Cr 总量随剂量单调下降, 但标定的目标是让前沿从 40 nm 长到 100 nm ——
-    # 氧化物长 2.5 倍, 里面的 Cr 原子总数必然跟着涨, 两个要求直接矛盾。实测:
-    # 端点已经进 ±5 nm 带的 330 个样本里, 满足这个约束的是 0 个, 可行性永远为 0。
-    # "Cr 被辐照消耗"的正确度量是浓度不是总量, 而浓度就是原子百分比 ——
-    # 实验靶值 75.2 -> 68.3 -> 57.8 已经把它精确写进去了, 外加 Cr 随剂量下降的
-    # 单边惩罚。用总量表达消耗, 等于把成分变化和氧化物体积增长混为一谈。
-    residual = np.asarray(front + composition + reach + shape)
+    eps = 1.0e-6
+    constraints = [
+        (fr[0] - fr[1]) / 10.0 + eps,      # 前沿必须随剂量变深 (靶 40->60->100)
+        (fr[1] - fr[2]) / 10.0 + eps,
+        (cr[1] - cr[0]) / 10.0 + eps,      # Cr 原子比必须随剂量下降 (75.2->68.3->57.8)
+        (cr[2] - cr[1]) / 10.0 + eps,
+        (1.0 if min(fr) <= 0.0 else -1.0), # 必须成膜: 前沿为 0 时成分无从谈起
+    ]
+    # 端点带不再进约束 —— |front - target| 是定量差异, 已由 front 残差连续表达。
+    # 定量是否达标由 gen_tool 的 is_success 单独判 (那是"命中"的判据),
+    # 与 CMA 的可行性分层是两回事。
 
-    # 硬约束两类: 前沿必须够得着取样深度 (够不着就没有成分可比), 端点前沿必须
-    # 落在 band 内。成分本身不进硬约束 —— 它是与实测值的连续残差, 而且
-    # Cr+Fe+Ni 口径下有 0.9~3.9% 的地板 (模型不产 Ni), 任何"成分必须多准"的
-    # 硬门槛都会把整代一次性判成不可行, CMA 就没有排序信息可用了。
-    constraints = []
-    # 够不着取样深度 -> 硬约束违反 (成分数据无效, 不该和有效样本同层比较)
-    constraints.extend(x / 10.0 for x in shortfall)
-    # 端点硬约束: |front - target| <= ENDPOINT_BAND。放进 constraints 即进入
-    # lexicographic 分层 —— 端点超差的样本永远排在端点达标的样本之后。
-    band = ENDPOINT_BAND if ENDPOINT_BAND > 0 else 5.0     # 配成 0 也不能除零
-    constraints.append((abs(raw[0]) - band) / band)
-    constraints.append((abs(raw[2]) - band) / band)
-
-    # 兜底: 任何一项算成 nan/inf 都会让 CMA 的排序失效 (nan 比较是假, 整代乱序)。
-    # 上面每个分母都已经保护过, 这里再夹一道, 保证 evaluate_case 永远给出有限值。
+    # 兜底: 任何一项算成 nan/inf 都会让 CMA 的排序失效 (nan 比较恒为假, 整代乱序)。
     residual = np.clip(np.nan_to_num(residual, nan=RESID_CLIP,
                                      posinf=RESID_CLIP, neginf=-RESID_CLIP),
                        -RESID_CLIP, RESID_CLIP)
@@ -224,9 +203,7 @@ def residual_and_constraints(tag: str):
                                         nan=RESID_CLIP, posinf=RESID_CLIP,
                                         neginf=-RESID_CLIP),
                           -RESID_CLIP, RESID_CLIP)
-    feasible = bool(abs(raw[0]) <= band
-                    and abs(raw[2]) <= band
-                    and max(shortfall) <= 0.0)
+    feasible = bool(np.all(constraints <= 0.0))     # 可行 = 定性上没犯错
     return residual, constraints, feasible
 
 
