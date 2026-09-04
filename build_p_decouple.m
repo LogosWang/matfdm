@@ -12,7 +12,7 @@ p.dx    = 0.3;
 p.dy    = 1;
 % p.t_end = 1e7;
 
-p.num_ckpt = 100;
+p.num_ckpt = 200;
 p.num_output = 10;
 
 % ---- 缺陷场 ----
@@ -52,17 +52,14 @@ p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 
 
-p.Dgb = 1e-9;   % rhs_aks.m:128-130 活跃读取, 不能删。沿用 c002ab1 的
-                % 1e-9 (基本关掉 Ni 的晶界排出) —— 手调那份未给出活跃值。
+% Ni 晶界排出。rhs_aks.m:128-130 仍在活跃调用 (F -> dNi_gb -> J_r_gb,
+% 最终进 lattice_velocity_x), 字段不能删; 1e-9 使其贡献可忽略 = 实质关闭。
+p.Dgb = 1e-9;
 p.bypass = 1.0;
 p.bypass_threshold = 0.6;
 p.vc = 8e-6; p.vw = 2e-6;
 
 
-
-p.M_ex  = 1e-3;              % PBR 应变梯度驱动的 Ni 挤出迁移率 = kappa*K/eta
-                             % 量纲同原 p.Dgb (长度^2/时间), 参与标定
-p.phi_w = 1e-3 * p.Ni_init;  % softplus 正则化宽度, 纯数值参数, 不参与标定
 
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
 p.DCr2O3O  = 5e-5;      % O 穿内层
