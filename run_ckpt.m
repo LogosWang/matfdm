@@ -47,8 +47,13 @@ end
  
 % ---------- 分段积分主循环 ----------
 for k = kstart:nWin
-    seg = ode15s(@(t,y) rhs_aks(t,y,p), [t_out(k) t_out(k+1)], y0, opts);
-    y0  = seg.y(:, end);
+    % (A) 同 run_ckpt_decouple: 单输出的 sol 形式在 neq=45750 时触发
+    % ode15s.m:437 的 chunk=1, 每步 realloc+整体拷贝 dif3d+yout (~1.83 MB/步),
+    % 时间 O(n^2)、内存 O(n), 而 sol 只被用来取末态。三点 tspan 走
+    % ode15s.m:449 的预分配分支, 输出内存恒为 neq×3。
+    [~, yy] = ode15s(@(t,y) rhs_aks(t,y,p), ...
+                     [t_out(k), 0.5*(t_out(k)+t_out(k+1)), t_out(k+1)], y0, opts);
+    y0  = yy(end,:).';
     Y(:, k+1) = y0;
  
     kdone = k;
