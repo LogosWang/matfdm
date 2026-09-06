@@ -9,19 +9,34 @@ function run_ckpt_decouple(p)
 %          缺陷不再介导金属扩散, RIS 剖面冻结
 %          num_ckpt 窗分段积分, 每窗末存 checkpoint
 %
-% 输出:      <codedir>/decouple/dose<p.dose>/   csv+png (后处理用氧化段切片)
+% 输出:      <rundir>/decouple/<case_tag>/dose<p.dose>/   csv+png (后处理用氧化段切片)
 %            同文件夹 irr_timeseries.mat 为辐照段切片轨迹
-% checkpoint: <codedir>/checkpoint/decouple_dose<p.dose>/checkpoint.mat (仅氧化段)
+% checkpoint: <rundir>/checkpoint/<case_tag>/decouple_dose<p.dose>/checkpoint.mat
 
-% ---------- 路径 ----------
-codedir = fileparts(mfilename('fullpath'));
+% ---------- 路径: 数据写进运行目录, 不写进代码目录 ----------
+% p.rundir 优先 (标定驱动传入), 否则用 run_root() (= $MATFDM_RUN, 未设则代码目录)。
+% 编译成 standalone 后 mfilename('fullpath') 指向 MCR 的 CTF 解包目录 —— 绝不能
+% 拿它当输出根, 否则 120 条并行腿会全写进各自的节点临时目录, 结果拿不回来。
+if isfield(p,'rundir') && ~isempty(p.rundir)
+    codedir = char(p.rundir);
+else
+    codedir = run_root();
+end
 tag     = sprintf('%g', p.dose);
 % 交接方式不同的两版结果不互相覆盖: 重置版另存到 dose<x>_reset
 if isfield(p,'handoff_reset_defects') && p.handoff_reset_defects
     tag = [tag '_reset'];
 end
-outdir  = fullfile(codedir, 'decouple', ['dose' tag]);
-ckptdir = fullfile(codedir, 'checkpoint', ['decouple_dose' tag]);
+% case_tag 隔离每个 CMA 样本; 缺了它同一代 40 个样本会全撞进同一个 dose<x>/
+if isfield(p,'case_tag') && ~isempty(p.case_tag)
+    case_tag = char(p.case_tag);
+else
+    case_tag = 'default';
+end
+assert(~isempty(regexp(case_tag,'^[A-Za-z0-9_-]+$','once')), ...
+       'case_tag may only contain letters, digits, _ and -');
+outdir  = fullfile(codedir, 'decouple', case_tag, ['dose' tag]);
+ckptdir = fullfile(codedir, 'checkpoint', case_tag, ['decouple_dose' tag]);
 if ~exist(outdir,'dir'),  mkdir(outdir);  end
 if ~exist(ckptdir,'dir'), mkdir(ckptdir); end
 ckpt = fullfile(ckptdir, 'checkpoint.mat');
@@ -88,7 +103,9 @@ else
         Y1 = repmat(y0, 1, nS+1);             % dose=0 对照腿: 跳过辐照
         fprintf('[irr] dose=0, 跳过辐照段\n');
     end
-    save(fullfile(outdir,'irr_timeseries.mat'), 'Y1','t1','p1','-v7.3');
+    if isfield(p,'keep_traj') && p.keep_traj
+        save(fullfile(outdir,'irr_timeseries.mat'), 'Y1','t1','p1','-v7.3');
+    end
 
     % ---- 交接: 缺陷场如何处理 ----
     % p.handoff_reset_defects
@@ -115,7 +132,7 @@ else
 
     kstart = 1;  kdone = 0;
     Y2 = nan(M, nS+1);  Y2(:,1) = y0;
-    save(ckpt, 'kdone','y0','Y1','Y2','t1','t2','p1','p2','-v7.3');
+    save_checkpoint_atomic(ckpt,kdone,y0,Y1,Y2,t1,t2,p1,p2);
     fprintf('[handoff] 转氧化段: %d 窗, t=%.3e s (%.0f h)\n', nS, p.oxi_time, p.oxi_time/3600);
 end
 
@@ -135,12 +152,16 @@ for k = kstart:nS
     [~, yy] = ode15s(@(t,y) rhs_aks(t,y,p2), ...
                      [t2(k), 0.5*(t2(k)+t2(k+1)), t2(k+1)], y0, opts);
     y0  = yy(end,:).';     Y2(:, k+1) = y0;   kdone = k;
-    save(ckpt, 'kdone','y0','Y1','Y2','t1','t2','p1','p2','-v7.3');
+    save_checkpoint_atomic(ckpt,kdone,y0,Y1,Y2,t1,t2,p1,p2);
     fprintf('[ckpt] 氧化 %d/%d  t=%.3e s  本窗 %.1f s  累计 %.0f s\n', ...
             k, nS, t2(k+1), toc(tw), toc(tStart));
     if toc(tStart) > WALL_BUDGET
         fprintf('[wall] 预算耗尽, 已存 checkpoint, 退出等重排\n');
-        if batchStartupOptionUsed, exit(0); else, return; end
+        if batchStartupOptionUsed && isempty(getenv('CALIB_NO_EXIT'))
+            exit(0);                 % 独立腿模式: 退出让调度器续投
+        else
+            return;                  % pool worker / 交互: 只返回, 不杀进程
+        end
     end
 end
 
@@ -149,7 +170,12 @@ fprintf('[done] 两段完成, 后处理 -> %s\n', outdir);
 sel = round(linspace(1, nS+1, 10*p.num_output+1));
 postprocess_decouple(Y1(:,sel), t1(sel), Y2(:,sel), t2(sel), p1, outdir);
 delete(ckpt);
-if batchStartupOptionUsed, exit(0); end
+% 完成标记必须最后写: 全部 csv 落盘之后。硬杀在 postprocess 中途 -> 无标记 -> 重跑,
+% 不会把写了一半的 csv 当成结果 (见 leg_is_complete.m)。
+fid = fopen(fullfile(outdir,'_COMPLETE'), 'w');
+fprintf(fid, '%s\ncase=%s dose=%g\n', datestr(now,'yyyy-mm-dd HH:MM:SS'), case_tag, p.dose);
+fclose(fid);
+if batchStartupOptionUsed && isempty(getenv('CALIB_NO_EXIT')), exit(0); end
 end
 
 % =====================================================================
@@ -165,6 +191,13 @@ CO=ones(ny,1)*p.O_init;
 CCr2O3=ones(ny,1)*p.Cr2O3_init; CFe3O4=ones(ny,1)*p.Fe3O4_init;
 CFeCr2O4=ones(ny,1)*p.FeCr2O4_init; CSiO2=ones(ny,1)*p.SiO2_init;
 y0=[V(:);I(:);CCr(:);CFe(:);CNi(:);CSi(:);CO(:);CCr2O3(:);CFe3O4(:);CFeCr2O4(:);CSiO2(:)];
+end
+
+function save_checkpoint_atomic(ckpt,kdone,y0,Y1,Y2,t1,t2,p1,p2)
+tmp = [ckpt '.tmp'];
+save(tmp, 'kdone','y0','Y1','Y2','t1','t2','p1','p2','-v7.3');
+[ok,msg] = movefile(tmp,ckpt,'f');
+assert(ok, 'checkpoint atomic replace failed: %s', msg);
 end
 
 function absTol = build_abstol(M, N, p)
