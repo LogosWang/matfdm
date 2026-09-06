@@ -28,24 +28,29 @@ CSi(:, nx) = p.Si_DCB;
 % CO(1) 不强制 Dirichlet: 口部 Robin BC, 见 J_surf 与 dOdt
 
 % ---------------- 缺陷介导通量 ----------------
+% 金属浓度的 log 地板 (只防 log(0); 介质 V/I 不再进 log, 见 J_all_via_medium)
+if isfield(p,'logfloor_C'), cFl = p.logfloor_C; else, cFl = 1e-12; end
+
 [J_Cr_V_x,J_Fe_V_x,J_Ni_V_x,J_Si_V_x, ...
  J_Cr_V_y,J_Fe_V_y,J_Ni_V_y,J_Si_V_y] = ...
-    J_all_via_medium(CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1);
+    J_all_via_medium(CCr,CFe,CNi,CSi,V,p.DV,p.f0V,p.dx,p.dy,-1,cFl);
 [J_V_diff_x,J_V_diff_y] = JV(J_Cr_V_x,J_Cr_V_y, J_Fe_V_x, J_Fe_V_y, ...
                              J_Ni_V_x, J_Ni_V_y, J_Si_V_x, J_Si_V_y);
 
 [J_Cr_I_x,J_Fe_I_x,J_Ni_I_x,J_Si_I_x, ...
  J_Cr_I_y,J_Fe_I_y,J_Ni_I_y,J_Si_I_y] = ...
-    J_all_via_medium(CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1);
+    J_all_via_medium(CCr,CFe,CNi,CSi,I,p.DI,p.f0I,p.dx,p.dy,1,cFl);
 [J_I_diff_x,J_I_diff_y] = JI(J_Cr_I_x,J_Cr_I_y, J_Fe_I_x, J_Fe_I_y, ...
                              J_Ni_I_x, J_Ni_I_y, J_Si_I_x, J_Si_I_y);
 
 % ---------------- 界面代数 ----------------
 q_all = zeros(ny, 4);   u2_all = zeros(ny,1);
 for j = 1:ny
-    [qj, uuj, ~] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
-                              CCr2O3(j), CSiO2(j), CFe3O4(j), CFeCr2O4(j), p, []);
+    % okj 只用于计数, solve_node 的行为完全没动 (E 未修)
+    [qj, uuj, okj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
+                                CCr2O3(j), CSiO2(j), CFe3O4(j), CFeCr2O4(j), p, []);
     q_all(j,:) = qj';   u2_all(j) = uuj(2);
+    if ~okj, nbad = nbad + 1; end
 end
 qCr = q_all(:,1); qSi = q_all(:,2); qMag = q_all(:,3); qSpin = q_all(:,4);
 
@@ -126,12 +131,20 @@ dydt = [dV(:); dI(:); dCr(:); dFe(:); dNi(:); dSi(:); dO(:); ...
         dCr2O3(:); dFe3O4(:); dFeCr2O4(:); dSiO2(:)];
 
 if any(~isfinite(dydt))
+    % 原来这里只 fprintf 然后把 NaN 原样返回给 ode15s。那是最坏的处理:
+    % ode15s 的失败判据是 `if err > rtol` (ode15s.m:688), 而 NaN > rtol 求值为
+    % false —— 坏步会被【静默接受】, NaN 直接污染状态; 同时每次 RHS 求值刷 4 行,
+    % numjac 每算一次 Jacobian 要调几百次 RHS, 刷屏本身也在吃时间和内存。
+    % 现在直接报错: 求解中止, checkpoint 保持在上一个完成窗, 且信息可定位。
     bad = find(~isfinite(dydt));
-    fprintf('t=%.4e  NaN/Inf at %d indices, first few: ', t, numel(bad));
-    fprintf('%d ', bad(1:min(5,end)));
-    fprintf('\n');
-    fprintf('  min C: Cr=%g Fe=%g Ni=%g Si=%g O=%g\n', ...
-        min(CCr(:)), min(CFe(:)), min(CNi(:)), min(CSi(:)), min(CO(:)));
-    fprintf('  min V=%g I=%g\n', min(V(:)), min(I(:)));
+    error('rhs_aks:nonfinite', ...
+        ['t=%.6e: dydt 出现 %d 个 NaN/Inf, 首个索引 %d\n' ...
+         '  min  Cr=%g Fe=%g Ni=%g Si=%g O=%g\n' ...
+         '  min  V=%g  I=%g\n' ...
+         '  若 V/I/金属 的 min 为 0 或负: 检查 AbsTol 与地板值是否自洽\n' ...
+         '  (AbsTol/RelTol = ode15s 的 threshold, 必须 <= 该场的地板值)'], ...
+        t, numel(bad), bad(1), ...
+        min(CCr(:)), min(CFe(:)), min(CNi(:)), min(CSi(:)), min(CO(:)), ...
+        min(V(:)), min(I(:)));
 end
 end
