@@ -20,8 +20,12 @@ SWEEP_VALUES="0.0001 0.001 0.005 0.01 0.02 0.05 0.1 0.2 0.3 0.4 0.5 \
 PREFIX=ft                           # 运行目录名前缀 -> ft1e-1, ft5e-1, ft1e0 ...
 
 # --- 所有运行共用的标定设置 ---
-POPULATION=40                       # 每代 case 数
-WORKERS=120                         # parpool worker 数 (= POPULATION × 剂量数)
+# 一个 Perlmutter CPU 节点: 256 逻辑核 (128 物理 x SMT2), 503 GB 可用内存。
+# 单腿实测 RSS 约 1.2 GB, 252 腿 ≈ 305 GB, 留约 200 GB 余量。
+POPULATION=84                       # 每代 case 数
+WORKERS=252                         # 并发腿数 (= POPULATION × 剂量数), 占满 256 逻辑核
+MULT_MIN=0.01                       # 乘子搜索框下限 (相对基线的倍数)
+MULT_MAX=100                        # 乘子搜索框上限
 DOSES="[0, 0.5, 3]"                 # 剂量点
 TARGETS="[40, 60, 100]"             # 对应靶深度 nm
 
@@ -133,6 +137,7 @@ while read -r id v; do
   $MF new "$id" \
       "$SWEEP_KEY=$v" \
       "population=$POPULATION" "workers=$WORKERS" \
+      "mult_min=$MULT_MIN" "mult_max=$MULT_MAX" \
       "doses=$DOSES" "targets=$TARGETS" \
       "middle_max=$MIDDLE_MAX" "endpoint_band=$ENDPOINT_BAND" \
       "endpoint_tol=$ENDPOINT_TOL" "max_attempts=$MAX_ATTEMPTS" \

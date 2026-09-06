@@ -33,8 +33,33 @@ OUT = Path(os.environ.get("CALIB_OUT_DIR", Path(__file__).resolve().parent))
 STATE_PICKLE = OUT / "cma_state.pkl"
 NAMES = ["kCr", "kFe", "kSi", "kspin", "DCr2O3O", "DFe3O4",
          "DFeCr2O4", "DSiO2", "kRobin", "E_mag"]
-LOWER = np.full(10, math.log(0.03))
-UPPER = np.full(10, math.log(60.0))
+
+
+def _mult_bound(key: str, default: float) -> float:
+    """乘子搜索框的一端。env CALIB_MULT_MIN/MAX > <run>/config.json > 默认。
+
+    框是对基线的倍数, 在 log 空间对称: [0.01, 100] => [-4.605, +4.605]。
+    改宽只是放开 CMA 能走到多远, 不改采样尺度 (sigma 仍是 0.65)。
+    """
+    raw = os.environ.get("CALIB_MULT_" + key.upper(), "").strip()
+    if not raw:
+        cfg = RUN / "config.json"
+        if cfg.is_file():
+            try:
+                raw = json.loads(cfg.read_text()).get("mult_" + key)
+            except (OSError, ValueError):
+                raw = None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return v if v > 0 else default
+
+
+MULT_MIN = _mult_bound("min", 0.01)
+MULT_MAX = _mult_bound("max", 100.0)
+LOWER = np.full(10, math.log(MULT_MIN))
+UPPER = np.full(10, math.log(MULT_MAX))
 DOMAIN_WIDTH = UPPER - LOWER
 POPULATION = int(os.environ.get("CALIB_POPULATION", "10"))
 # 多链并行: 每条链给不同 CALIB_SEED, 否则各链的 ask 序列完全相同, 等于白跑

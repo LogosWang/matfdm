@@ -41,7 +41,8 @@ d, code = Path(os.environ['MF_DIR']), Path(os.environ['MF_CODE'])
 f = d / 'config.json'
 cfg = json.loads(f.read_text()) if f.exists() else {}
 for k, v in dict(run_id=os.environ['MF_ID'], doses=[0, 0.5, 3], targets=[40, 60, 100],
-                 front_thick=1.0, population=40, workers=120, middle_max=70,
+                 front_thick=1.0, population=84, workers=252, middle_max=70,
+                 mult_min=0.01, mult_max=100,
                  endpoint_band=5, endpoint_tol=3, max_attempts=3,
                  composition_targets=[], composition_tol=5, composition_scale=3,
                  composition_depth_frac=[0.575, 0.5, 0.44],
