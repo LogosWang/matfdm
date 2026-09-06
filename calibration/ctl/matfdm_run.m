@@ -60,7 +60,7 @@ if numel(a) >= 5 && ~isempty(strtrim(a{5}))
 else
     budget = inf;
 end
-if isnan(dose) || numel(mult) ~= 10
+if isnan(dose) || numel(mult) ~= 10 || any(isnan(mult))
     fprintf(2, 'dose 或 mult 解析失败 (mult 要 10 个逗号分隔的数)\n'); code = 64; return
 end
 
@@ -97,7 +97,7 @@ mult   = parse_vec(a{4});
 hours  = 1500;  nck = 150;
 if numel(a) >= 5 && ~isempty(strtrim(a{5})), hours = str2double(a{5}); end
 if numel(a) >= 6 && ~isempty(strtrim(a{6})), nck   = str2double(a{6}); end
-if isnan(dose) || numel(mult) ~= 10 || isnan(hours) || isnan(nck)
+if isnan(dose) || numel(mult) ~= 10 || any(isnan(mult)) || isnan(hours) || isnan(nck)
     fprintf(2, 'dose/mult/小时/采样点 解析失败 (mult 要 10 个逗号分隔的数)\n');
     code = 64; return
 end

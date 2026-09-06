@@ -44,7 +44,7 @@ if isfield(p,'logfloor_C'), cFl = p.logfloor_C; else, cFl = 1e-12; end
                              J_Ni_I_x, J_Ni_I_y, J_Si_I_x, J_Si_I_y);
 
 % ---------------- 界面代数 ----------------
-q_all = zeros(ny, 4);   u2_all = zeros(ny,1);
+q_all = zeros(ny, 4);   u2_all = zeros(ny,1);   nbad = 0;
 for j = 1:ny
     % okj 只用于计数, solve_node 的行为完全没动 (E 未修)
     [qj, uuj, okj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
