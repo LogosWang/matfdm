@@ -69,19 +69,22 @@ OVERRIDES='{"eff": 0.2}'            # 例: {"eff":0.2, "Dgb":1e-3, "rOM":0.2529}
 ENGINE=mcr
 BUILD_DIR=${MATFDM_BUILD:-$SCRATCH/matfdm_build}/CURRENT
 
-# --- 战役 (campaign): 同一套代码/算法/配置, 跑多套写死的物理参数 ---
-# 用法:  bash calibration/ctl/JOB.sh <战役名>
-# 战役文件 calibration/ctl/campaigns/<战役名>.env 只写与上面不同的项 ——
-# 通常就是 PREFIX (决定运行目录/清单/作业名的隔离) + OVERRIDES (物理参数) +
-# BUILD_DIR (钉死编译产物, 免得别的战役重编时把正在跑的链换掉二进制)。
-# 不给战役名 = 用上面的默认设置 (即 ris1: PREFIX=ft)。
+# --- RIS 参数组: 同一套代码/算法/配置, 跑多套写死的 RIS 扩散系数 ---
+# 背景: 要同时标定几套不同 RIS 参数 (DV/DI) 下的氧化参数。代码只有一份,
+# 每套 RIS 参数一个 .env 文件, 里面只写与上面设置区不同的那几项:
+#   PREFIX     决定隔离 —— 运行目录 ${PREFIX}*, 清单 runs_${PREFIX}.txt,
+#              作业名 mn_${PREFIX}, 参数表 postprocess/${PREFIX}*.txt
+#   OVERRIDES  该套的 DV/DI
+#   BUILD_DIR  钉死编译产物, 免得别人重编时把正在跑的链换掉二进制
 #
-# 为什么不复制三份仓库: 求解器改一次就要同步三遍, 这次会话里 rhs_aks 的
-# 管线回退如果分散在三份代码里, 修一处漏两处是必然的。
-CAMPAIGN=${1:-${MATFDM_CAMPAIGN:-}}
-if [[ -n "$CAMPAIGN" ]]; then
-  CFILE="$CODE/calibration/ctl/campaigns/${CAMPAIGN}.env"
-  [[ -f "$CFILE" ]] || { echo "找不到战役文件: $CFILE"; exit 1; }
+# 用法:  bash calibration/ctl/JOB.sh ris2
+# 不给参数名就用上面设置区的原样 (即现在 ft* 那套)。
+#
+# 为什么不复制三份代码: 求解器改一次要同步三遍, 漏一处就是三套结果不可比。
+RIS_SET=${1:-${MATFDM_RIS_SET:-}}
+if [[ -n "$RIS_SET" ]]; then
+  CFILE="$CODE/calibration/ctl/ris_sets/${RIS_SET}.env"
+  [[ -f "$CFILE" ]] || { echo "找不到 RIS 参数组文件: $CFILE"; exit 1; }
   # shellcheck source=/dev/null
   source "$CFILE"
 fi
@@ -127,7 +130,7 @@ COMPOSITION_TARGETS=$(module load python >/dev/null 2>&1; \
 
 echo "=========================================================="
 echo " 扫描      : $SWEEP_KEY = $(echo $SWEEP_VALUES | tr -s ' ')"
-echo " 战役      : ${CAMPAIGN:-ris1 (默认)}"
+echo " RIS 参数组: ${RIS_SET:-无 (用 JOB.sh 设置区原样)}"
 echo " 运行前缀  : $PREFIX      数据根: $RUNS"
 echo " 每代       : $POPULATION cases × $(echo "$DOSES" | tr -cd ',' | wc -c | awk '{print $1+1}') doses = $WORKERS legs"
 echo " 作业       : $NJOBS 轮 × $WALLTIME, 账号 $ACCOUNT, QOS $QOS"
@@ -175,6 +178,18 @@ N=$(grep -c . "$MANIFEST")
 echo "清单 $MANIFEST -> $N 个运行 = $N 个节点/作业"
 
 # 3) 提交: 一个作业占 N 节点, NJOBS 轮 afterany 接力
+# 同名作业已在队列里就拒绝 —— 2026-09-04 踩过: 旧链没撤干净又投一次,
+# 队列里 31 个 mn_ft 分成两条链跑同一批目录, 互相覆盖 CMA 状态。
+existing=$(squeue --me -h -o "%j" 2>/dev/null | grep -cx "mn_${PREFIX}" || true)
+if [[ "$existing" -gt 0 ]]; then
+  echo
+  echo "队列里已经有 $existing 个 mn_${PREFIX} 作业 —— 拒绝提交。"
+  echo "两条链跑同一批 ${PREFIX}* 目录会互相踩 CMA 状态。"
+  echo "确实要重投, 先撤掉旧链:"
+  echo "  squeue --me -h -o '%i %j' | awk '\$2==\"mn_${PREFIX}\"{print \$1}' | xargs scancel"
+  exit 1
+fi
+
 dep=""
 for ((i=0;i<NJOBS;i++)); do
   jid=$(sbatch --parsable -N "$N" -t "$WALLTIME" -A "$ACCOUNT" -q "$QOS" \

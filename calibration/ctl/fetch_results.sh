@@ -16,7 +16,7 @@
 #   ~/fetch_results.sh --dest "/Volumes/WZ_T9/RISconti/NERSC calibration"
 #   ~/fetch_results.sh --with-mat      # 连 fields_timeseries.mat 一起 (约 7 GB)
 #   ~/fetch_results.sh --no-verify     # 只取标定结果, 跳过长时验证
-#   ~/fetch_results.sh --pattern 'ris2_ft*'   # 只取某一套 RIS 战役 (默认全取)
+#   ~/fetch_results.sh --pattern 'ris2_ft*'   # 只取某一套 RIS 参数组 (默认全取)
 
 set -uo pipefail
 
@@ -28,7 +28,7 @@ DATE=$(date +%Y%m%d)
 TOP=10
 VERIFY=1        # 取长时验证结果
 WITH_MAT=0      # 连 fields_timeseries.mat 一起 (每条 21 MB, 320 条约 6.7 GB)
-# 战役过滤: postprocess 里三套 RIS 的参数表按前缀区分 (ft*.txt / ris2_ft*.txt /
+# RIS 参数组过滤: postprocess 里三套的参数表按前缀区分 (ft*.txt / ris2_ft*.txt /
 # ris3_ft*.txt), 默认三套一起取。只要一套就给 --pattern 'ris2_ft*'。
 PATTERN='*'
 
