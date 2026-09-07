@@ -185,6 +185,16 @@ def residual_and_constraints(tag: str):
 
     cr = np.array([float(row["Cr_atom_pct"]) for row in rows])
     fe = np.array([float(row["Fe_atom_pct"]) for row in rows])
+    # 统一相对深度 (前沿 0.5x) 上的 Cr at%, 只供单调性约束用, 不进残差。
+    # 与上面的 cr 不是一回事: cr 的取样比例逐剂量不同 (0.575/0.5/0.44, 对齐
+    # 实验的 23/40, 30/60, 44/100), 是拿来跟实验值比大小的; 判"随剂量贫化"
+    # 必须三个剂量站在同一个相对深度上。
+    try:
+        crh = np.array([float(row["Cr_atom_pct_half"]) for row in rows])
+    except KeyError:
+        raise KeyError(
+            f"{tag}.csv 没有 Cr_atom_pct_half 列 —— 这是 2026-09-07 加的指标, "
+            "旧的 metrics csv 没有。清空该运行的数据重算, 或重编译后重跑。")
 
     # 成分: 与实验测得的 at% 直接比。at% 是在实验取样深度上就地取的
     # (comp_depth_nm), 不是全长积分 —— 见 extract_calibration_metrics.m。
@@ -214,6 +224,8 @@ def residual_and_constraints(tag: str):
         (fr[1] - fr[2]) / 10.0 + eps,
         (cr[1] - cr[0]) / 10.0 + eps,      # Cr 原子比必须随剂量下降 (75.2->68.3->57.8)
         (cr[2] - cr[1]) / 10.0 + eps,
+        (crh[1] - crh[0]) / 10.0 + eps,    # 同上, 但在统一的前沿 0.5x 深度处判
+        (crh[2] - crh[1]) / 10.0 + eps,    # (2026-09-07 加; 旧结果 75.4% 已满足)
         (1.0 if min(fr) <= 0.0 else -1.0), # 必须成膜: 前沿为 0 时成分无从谈起
     ]
     # 端点带不再进约束 —— |front - target| 是定量差异, 已由 front 残差连续表达。

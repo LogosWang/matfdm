@@ -12,6 +12,10 @@ function metrics = extract_calibration_metrics(case_tag)
 %     SiO2 不计: 实际中它会被溶解, 不该占氧化物金属的份额。
 %     Si 仍然输出, 但只作诊断 (与同一分母比), 不参与标定。
 %
+%   Cr_atom_pct_half (2026-09-07 加): 固定在前沿 0.5 倍深度处的 Cr at%,
+%     三个剂量同一个相对深度, 专供"Cr 必须随剂量贫化"这条单调性约束。
+%     不能用 Cr_atom_pct 代替 —— 那个每个剂量的取样比例不同。
+%
 %   取样位置 (2026-08-28 改):
 %     成分在 cfg.composition_depth 指定的深度上就地取样 (每个剂量一个深度,
 %     与实验取样位置一致), 不再沿整条 GB 积分 —— 全长积分等于把前沿以内所有
@@ -60,7 +64,7 @@ rho_over_M = [p0.Cr2O3den   / p0.Cr2O3mass, ...
 
 metrics = struct('dose',cell(1,nD),'front_nm',[],'residual_nm',[], ...
     'comp_depth_nm',[],'oxide_integrals_nm2',[],'metal_atom_inventory',[], ...
-    'metal_atom_percent',[],'cr_atom_major',[]);
+    'metal_atom_percent',[],'cr_atom_major',[],'cr_atom_pct_half',[]);
 
 for i = 1:nD
     d = doses(i);
@@ -107,8 +111,28 @@ for i = 1:nD
         atom_pct = zeros(1,4);           % 该深度没有氧化物 -> 目标函数重罚
     end
 
+    % ---- 单调性判据专用: 固定在前沿 0.5 倍深度处的 Cr at% ----
+    % 为什么不能复用上面的 atom_pct: 成分取样每个剂量用的比例不同
+    % (0.575 / 0.5 / 0.44, 对齐实验的 23/40, 30/60, 44/100), 三个剂量落在
+    % 氧化层的不同相对位置。拿它们比大小 = 把"深度变化"和"剂量变化"混在
+    % 一起, 判不出 Cr 到底有没有随剂量贫化。单调性必须三个剂量取同一个相对
+    % 深度, 才是同一个结构位置上的对比。
+    % 相对取样点按定义必在前沿以内, 不存在够不着; 只有 front=0 (完全没成膜)
+    % 时退化到表面节点, 那种样本已由"必须成膜"约束单独判死。
+    zh   = 0.5 * front;
+    lh   = interp1(zg, profiles, zh, 'linear', 0);
+    hfu  = lh(:)' .* rho_over_M;
+    hat  = [2*hfu(1)+2*hfu(3), 3*hfu(2)+hfu(3), hfu(4), 0];
+    hden = hat(1) + hat(2) + hat(4);                 % Cr + Fe + Ni, 同 atom_pct 口径
+    if hden > 0
+        cr_half = 100*hat(1)/hden;
+    else
+        cr_half = 0;
+    end
+
     metrics(i).dose = d;
     metrics(i).front_nm = front;
+    metrics(i).cr_atom_pct_half = cr_half;
     metrics(i).residual_nm = front - target(i);
     metrics(i).comp_depth_nm = zs;
     metrics(i).oxide_integrals_nm2 = oxint;
@@ -128,14 +152,16 @@ fid = fopen(tmpfile,'w');
 fprintf(fid,['dose,front_nm,residual_nm,comp_depth_nm,' ...
              'Cr2O3_int,Fe3O4_int,FeCr2O4_int,SiO2_int,' ...
              'Cr_atom_inventory,Fe_atom_inventory,Si_atom_inventory,Ni_atom_inventory,' ...
-             'Cr_atom_pct,Fe_atom_pct,Si_atom_pct,Ni_atom_pct,Cr_atom_major\n']);
+             'Cr_atom_pct,Fe_atom_pct,Si_atom_pct,Ni_atom_pct,Cr_atom_major,' ...
+             'Cr_atom_pct_half\n']);
 for i = 1:nD
     fprintf(fid,['%.6g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g,' ...
-                 '%.12g,%.12g,%.12g,%.12g,%.9g,%.9g,%.9g,%.9g,%d\n'], ...
+                 '%.12g,%.12g,%.12g,%.12g,%.9g,%.9g,%.9g,%.9g,%d,%.9g\n'], ...
         metrics(i).dose,metrics(i).front_nm,metrics(i).residual_nm, ...
         metrics(i).comp_depth_nm, ...
         metrics(i).oxide_integrals_nm2,metrics(i).metal_atom_inventory, ...
-        metrics(i).metal_atom_percent,metrics(i).cr_atom_major);
+        metrics(i).metal_atom_percent,metrics(i).cr_atom_major, ...
+        metrics(i).cr_atom_pct_half);
 end
 fclose(fid);
 [ok,msg] = movefile(tmpfile, csvfile, 'f');
