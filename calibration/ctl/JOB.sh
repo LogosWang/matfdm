@@ -69,6 +69,23 @@ OVERRIDES='{"eff": 0.2}'            # 例: {"eff":0.2, "Dgb":1e-3, "rOM":0.2529}
 ENGINE=mcr
 BUILD_DIR=${MATFDM_BUILD:-$SCRATCH/matfdm_build}/CURRENT
 
+# --- 战役 (campaign): 同一套代码/算法/配置, 跑多套写死的物理参数 ---
+# 用法:  bash calibration/ctl/JOB.sh <战役名>
+# 战役文件 calibration/ctl/campaigns/<战役名>.env 只写与上面不同的项 ——
+# 通常就是 PREFIX (决定运行目录/清单/作业名的隔离) + OVERRIDES (物理参数) +
+# BUILD_DIR (钉死编译产物, 免得别的战役重编时把正在跑的链换掉二进制)。
+# 不给战役名 = 用上面的默认设置 (即 ris1: PREFIX=ft)。
+#
+# 为什么不复制三份仓库: 求解器改一次就要同步三遍, 这次会话里 rhs_aks 的
+# 管线回退如果分散在三份代码里, 修一处漏两处是必然的。
+CAMPAIGN=${1:-${MATFDM_CAMPAIGN:-}}
+if [[ -n "$CAMPAIGN" ]]; then
+  CFILE="$CODE/calibration/ctl/campaigns/${CAMPAIGN}.env"
+  [[ -f "$CFILE" ]] || { echo "找不到战役文件: $CFILE"; exit 1; }
+  # shellcheck source=/dev/null
+  source "$CFILE"
+fi
+
 # --- 以下几个只有 ENGINE=matlab 的回退路线才用得上 ---
 # 抢不到不会放弃, 一路退避重试到**墙钟前 5 分钟**为止 —— 什么时候收手只由
 # WALLTIME 决定, 下面几个参数都不是放弃时限。
@@ -110,6 +127,7 @@ COMPOSITION_TARGETS=$(module load python >/dev/null 2>&1; \
 
 echo "=========================================================="
 echo " 扫描      : $SWEEP_KEY = $(echo $SWEEP_VALUES | tr -s ' ')"
+echo " 战役      : ${CAMPAIGN:-ris1 (默认)}"
 echo " 运行前缀  : $PREFIX      数据根: $RUNS"
 echo " 每代       : $POPULATION cases × $(echo "$DOSES" | tr -cd ',' | wc -c | awk '{print $1+1}') doses = $WORKERS legs"
 echo " 作业       : $NJOBS 轮 × $WALLTIME, 账号 $ACCOUNT, QOS $QOS"

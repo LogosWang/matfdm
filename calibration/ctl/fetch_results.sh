@@ -16,6 +16,7 @@
 #   ~/fetch_results.sh --dest "/Volumes/WZ_T9/RISconti/NERSC calibration"
 #   ~/fetch_results.sh --with-mat      # 连 fields_timeseries.mat 一起 (约 7 GB)
 #   ~/fetch_results.sh --no-verify     # 只取标定结果, 跳过长时验证
+#   ~/fetch_results.sh --pattern 'ris2_ft*'   # 只取某一套 RIS 战役 (默认全取)
 
 set -uo pipefail
 
@@ -27,6 +28,9 @@ DATE=$(date +%Y%m%d)
 TOP=10
 VERIFY=1        # 取长时验证结果
 WITH_MAT=0      # 连 fields_timeseries.mat 一起 (每条 21 MB, 320 条约 6.7 GB)
+# 战役过滤: postprocess 里三套 RIS 的参数表按前缀区分 (ft*.txt / ris2_ft*.txt /
+# ris3_ft*.txt), 默认三套一起取。只要一套就给 --pattern 'ris2_ft*'。
+PATTERN='*'
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -35,6 +39,7 @@ while [[ $# -gt 0 ]]; do
     --top)    TOP=$2;  shift 2;;
     --remote) REMOTE=$2; shift 2;;
     --verify-root) VROOT=$2; shift 2;;
+    --pattern) PATTERN=$2; shift 2;;
     --no-verify)   VERIFY=0; shift;;
     --with-mat)    WITH_MAT=1; shift;;
     -h|--help) sed -n '2,22p' "$0"; exit 0;;
@@ -71,7 +76,7 @@ scp "${SSHOPT[@]}" -r "$REMOTE:$RUNS/postprocess" "$OUT/" || {
 echo
 echo "[2/3] 取前 $TOP 名的标定结果"
 total=0
-for txt in "$OUT"/postprocess/*.txt; do
+for txt in "$OUT"/postprocess/${PATTERN}.txt; do
   [[ -e "$txt" ]] || continue
   run=$(basename "$txt" .txt)
 

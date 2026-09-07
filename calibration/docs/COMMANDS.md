@@ -13,6 +13,53 @@ export MATFDM_CODE=$SCRATCH/projects/matfdm
 
 ---
 
+## 多套 RIS 参数并行标定 (战役 / campaign)
+
+同一套代码、算法、种群、搜索框、成分靶值、后处理、验证、传输, 跑多套写死的
+RIS 参数 (`DV` / `DI`)。三套之间路径、清单、作业名、结果文件名全部隔离。
+
+| 战役 | 前缀 | 运行目录 | 清单 | 作业名 | 参数表 |
+|---|---|---|---|---|---|
+| `ris1` (默认) | `ft` | `matfdm_runs/ft*` | `runs_ft.txt` | `mn_ft` | `postprocess/ft*.txt` |
+| `ris2` | `ris2_ft` | `matfdm_runs/ris2_ft*` | `runs_ris2_ft.txt` | `mn_ris2_ft` | `postprocess/ris2_ft*.txt` |
+| `ris3` | `ris3_ft` | `matfdm_runs/ris3_ft*` | `runs_ris3_ft.txt` | `mn_ris3_ft` | `postprocess/ris3_ft*.txt` |
+
+战役文件在 `calibration/ctl/campaigns/<名>.env`, 只写与 `JOB.sh` 设置区不同的项
+(前缀 + `OVERRIDES` + 钉死的 `BUILD_DIR`)。共享设置只有 `JOB.sh` 一份, 三套必然一致。
+
+```bash
+# 提交 (不给战役名 = ris1, 即老的 ft 那套)
+bash calibration/ctl/JOB.sh ris2
+bash calibration/ctl/JOB.sh ris3
+
+# 看进度 / 导前十名 / 长时验证 —— 都按前缀过滤
+bash calibration/ctl/matfdm.sh status
+bash calibration/ctl/matfdm.sh export 'ris2_ft*'
+bash calibration/ctl/VERIFY.sh --pattern 'ris2_ft*'
+
+# 传输 (在 Mac 上跑): 默认三套一起取, 只要一套就加 --pattern
+~/fetch_results.sh
+~/fetch_results.sh --pattern 'ris2_ft*'
+```
+
+**改某套战役的 RIS 参数必须先清空该战役的运行目录**:
+
+```bash
+for d in $SCRATCH/matfdm_runs/ris2_ft*; do
+  bash calibration/ctl/matfdm.sh clean "$(basename "$d")"
+done
+```
+
+`DV` / `DI` 不在 `run_calibration_case.m` 的参数指纹里 (`extra` 只覆盖 `eff`/`rOM`/
+`Ks`/`f0V`/`f0I` 等标量), 所以改了不会自动作废旧腿 —— 旧结果会被当成有效结果沿用。
+新建战役目录是空的所以没问题, 但**在已有战役里改 RIS 参数一定要先 clean**。
+
+`BUILD_DIR` 在战役文件里钉死成绝对路径而不是 `CURRENT` 软链: 每条腿是执行时才解析
+路径, 别的战役重编时 `CURRENT` 改指向, 会把正在跑的链中途换掉二进制。
+**改了 `.m` 要让某个战役用上新版, 就重编后把该战役 `.env` 里的 `BUILD_DIR` 改到新
+commit, 再重投。**
+
+
 ## 一、编译(只在改了 .m 源码时做)
 
 **必须在计算节点上编**,不要在 login 节点(无图形时 `mcc` 会 segfault)。
