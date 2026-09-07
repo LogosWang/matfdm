@@ -124,10 +124,16 @@ else
         p2.I_init = floorI;  p2.I_DBC = floorI;
         fprintf('[handoff] 缺陷场重置为热平衡值: V=%g, I=%g\n', floorV, floorI);
     else
-        fprintf(['[handoff] 保留辐照末态缺陷场: V=[%.3e, %.3e]  I=[%.3e, %.3e]\n' ...
-                 '[handoff] (Veq=%.1e, Ieq=%.1e, dose_rate=0 => Ks 汇项以 1/Ks=%.0f s 退火)\n'], ...
-                min(y0(1:N)), max(y0(1:N)), min(y0(N+1:2*N)), max(y0(N+1:2*N)), ...
-                p2.V_init, p2.I_init, 1/p.Ks);
+        fprintf('[handoff] 保留辐照末态缺陷场: V=[%.3e, %.3e]  I=[%.3e, %.3e]\n', ...
+                min(y0(1:N)), max(y0(1:N)), min(y0(N+1:2*N)), max(y0(N+1:2*N)));
+        % Ks=0 时汇项整个消失, 1/Ks 会印成 Inf —— 那不是"退火极慢", 是根本不退火。
+        if p.Ks > 0
+            fprintf(['[handoff] (Veq=%.1e, Ieq=%.1e, dose_rate=0 => ' ...
+                     'Ks 汇项以 1/Ks=%.0f s 退火)\n'], p2.V_init, p2.I_init, 1/p.Ks);
+        else
+            fprintf(['[handoff] (Ks=0 => 无退火汇项, 缺陷只靠复合 recomb_rate ' ...
+                     '与扩散演化)\n']);
+        end
     end
 
     kstart = 1;  kdone = 0;

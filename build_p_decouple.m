@@ -31,16 +31,16 @@ p.def_floor_I = 1e-30;
 % 两版结果分开存: true 时输出目录/checkpoint 变成 dose<x>_reset, 不覆盖默认版。
 p.handoff_reset_defects = false;
 
-p.Ks = 1e-3;
+p.Ks = 0.0;
 DCrV = 1.9e7;
-DFeV = 1.5e7;
-DNiV = 1.2e7;
-DSiV = 1.7e7;
+DFeV = 1.45e7;
+DNiV = 1.15e7;
+DSiV = 1.9e7;
 p.DV = [DCrV, DFeV, DNiV,DSiV];
 DCrI = 4e6;
 DFeI = 4e6;
 DNiI = 4e6;
-DSiI = 1.1e7;
+DSiI = 1.4e7;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.78;
 p.f0I = 0.44;
