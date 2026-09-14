@@ -1,4 +1,11 @@
 function p = build_p_decouple(dose)
+% ======================================================================
+% 由标定结果自动生成 —— 可直接替换 build_p_decouple.m
+% 运行 ris3_ft1e0  第 1 名  case b06_c12_cma
+% fitness=402.332  objective=402.332  可行=True
+% 十个氧化量来自该 case 的乘子 x 基线; DV/DI 来自该运行的 overrides。
+% 注意 p.DCr2O3 = p.DCr2O3O 与 p.DO0 = p.DSiO2 仍是绑定, 没有写死。
+% ======================================================================
 % 唯一的参数来源。main 和 run_ckpt 都调用它, 保证参数不漂移。
 % 改物理参数只改这里。
  
@@ -8,7 +15,7 @@ p.ny    = 150;
  
 p.dt          = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;
-p.dx    = 0.3;
+p.dx    = 1;
 p.dy    = 1;
 % p.t_end = 1e7;
 
@@ -31,16 +38,16 @@ p.def_floor_I = 1e-30;
 % 两版结果分开存: true 时输出目录/checkpoint 变成 dose<x>_reset, 不覆盖默认版。
 p.handoff_reset_defects = false;
 
-p.Ks = 1e-3;
-DCrV = 1.9e7;
+p.Ks = 0.0;
+DCrV = 1.75e7;
 DFeV = 1.5e7;
-DNiV = 1.2e7;
+DNiV = 1.3e7;
 DSiV = 1.7e7;
 p.DV = [DCrV, DFeV, DNiV,DSiV];
-DCrI = 4e6;
-DFeI = 4e6;
-DNiI = 4e6;
-DSiI = 1.1e7;
+DCrI = 2e6;
+DFeI = 2e6;
+DNiI = 2e6;
+DSiI = 4.5e6;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.78;
 p.f0I = 0.44;
@@ -63,15 +70,15 @@ p.Cr2O3_init = 0.0;  p.Fe3O4_init = 0.0;
 p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
-p.DCr2O3O  = 3e-5;      % O 穿内层
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 0.0012;  p.DFeCr2O4 = 0.0006;  p.DSiO2 = 1.0;
+p.DCr2O3O  = 3e-06;      % O 穿内层
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 8e-5;  p.DFeCr2O4 = 4.374146022e-05;  p.DSiO2 = 0.1;
  
 % ---- 界面动力学 (nm/s) ----
-p.kCr = 0.6;  p.kSi = 2e-5;  p.kFe = 1e-5;  p.kspin = 5e-4;
+p.kCr = 0.3;  p.kSi = 6.38484968e-2;  p.kFe = 1.5e-05;  p.kspin = 4e-4;
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
-p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.008;  p.E_spin = 0;
-p.kRobin = 0.4;
+p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.0004;  p.E_spin = 0;
+p.kRobin = 0.3;
 % O场(水归一)与金属(site fraction)的原子当量换算: rOM = C_O,ref/Nden
 % 满水通道 O 密度锚 ~33/87≈0.38; 稀载流子则 <<1。=1 完全还原旧行为。
 p.rOM = 22/87;
@@ -103,7 +110,7 @@ p.logfloor_C = 1e-12;    % 金属浓度 (实际量级 1e-3~0.7); 介质 V/I 不�
 % 于是求解行为会随 num_ckpt 变化 —— 这正是"改 checkpoint 数量就好转"的第二条
 % 耦合通道。设成一个【小于最短窗长】的绝对值, 求解行为就与 num_ckpt 解耦。
 % 参考: oxi_time=1.8e6 s, num_ckpt=200 -> 窗长 9000 s; num_ckpt=50 -> 36000 s。
-p.max_step   = 36000;
+p.max_step   = 9000;
 
 % ---- 物性 ----
 p.slab = 1;  p.DO0 = p.DSiO2;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
