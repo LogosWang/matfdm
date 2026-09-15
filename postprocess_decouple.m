@@ -12,7 +12,7 @@ function postprocess_decouple(Y1, t1, Y2, t2, p, outdir)
 %   fields_timeseries.mat = 氧化段重建场 (辐照段原始轨迹由 driver 存 irr_timeseries.mat)
 
 if ~exist(outdir,'dir'), mkdir(outdir); end
-savepng = @(name) exportgraphics(gcf, fullfile(outdir,[name '.png']), 'Resolution', 300);
+savepng = @(name) save_png(gcf, outdir, name);
 
 N = p.nx*p.ny;  ny = p.ny;  nx = p.nx;
 nt1 = numel(t1);  nt2 = numel(t2);
@@ -187,4 +187,13 @@ for f = 1:4
 end
 
 fprintf('后处理完成 (decouple), 全部输出 -> %s\n', outdir);
+end
+
+% =====================================================================
+function save_png(fh, outdir, name)
+% R2025b 的 web 图窗是异步创建/渲染的, 刚 plot 完就 exportgraphics(gcf)
+% 可能拿到尚未就绪的图窗 -> "输入不是有效的图形对象"。先 drawnow 再导出。
+drawnow;
+if ~isgraphics(fh, 'figure'), fh = gcf; end
+exportgraphics(fh, fullfile(outdir, [name '.png']), 'Resolution', 300);
 end

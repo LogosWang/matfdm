@@ -16,7 +16,7 @@ p.ny    = 150;
 p.dt          = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;
 p.dx    = 1;
-p.dy    = 1;
+p.dy    = 2;
 % p.t_end = 1e7;
 
 p.num_ckpt = 50;
@@ -71,14 +71,14 @@ p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
 p.DCr2O3O  = 3e-06;      % O 穿内层
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 8e-5;  p.DFeCr2O4 = 4.374146022e-05;  p.DSiO2 = 0.1;
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 2e-4;  p.DFeCr2O4 = 4.374146022e-05;  p.DSiO2 = 0.4;
  
 % ---- 界面动力学 (nm/s) ----
 p.kCr = 0.3;  p.kSi = 6.38484968e-2;  p.kFe = 1.5e-05;  p.kspin = 4e-4;
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
 p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.0004;  p.E_spin = 0;
-p.kRobin = 0.3;
+p.kRobin = 1;
 % O场(水归一)与金属(site fraction)的原子当量换算: rOM = C_O,ref/Nden
 % 满水通道 O 密度锚 ~33/87≈0.38; 稀载流子则 <<1。=1 完全还原旧行为。
 p.rOM = 22/87;
