@@ -44,11 +44,22 @@ if isfield(p,'logfloor_C'), cFl = p.logfloor_C; else, cFl = 1e-12; end
                              J_Ni_I_x, J_Ni_I_y, J_Si_I_x, J_Si_I_y);
 
 % ---------------- 界面代数 ----------------
-q_all = zeros(ny, 4);   u2_all = zeros(ny,1);
+% p.closure = 'laplace': 整个氧化物截面为 O 通道, 半宽 L = chan_width(ΣL_k, slab),
+%                        侧向闭合为 Laplace 基模 (solve_mu, 未知量 mu)。
+%             'node'   : 旧模型, 固定 slab 通道 + 膜电导闭合 (solve_node, 未知量 u)。
+% 缺省 'node', 使旧 checkpoint 里的 p 行为不变。
+if isfield(p,'closure') && ~isempty(p.closure), closure = p.closure; else, closure = 'node'; end
+use_mu = strcmp(closure, 'laplace');
+q_all = zeros(ny, 4);   u2_all = zeros(ny,1);   nbad = 0;
 for j = 1:ny
-    % okj 只用于计数, solve_node 的行为完全没动 (E 未修)
-    [qj, uuj, okj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
-                                CCr2O3(j), CSiO2(j), CFe3O4(j), CFeCr2O4(j), p, []);
+    if use_mu
+        [qj, uuj, okj] = solve_mu(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
+                                  CCr2O3(j), CSiO2(j), CFe3O4(j), CFeCr2O4(j), p, []);
+    else
+        % okj 只用于计数, solve_node 的行为完全没动 (E 未修)
+        [qj, uuj, okj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
+                                    CCr2O3(j), CSiO2(j), CFe3O4(j), CFeCr2O4(j), p, []);
+    end
     q_all(j,:) = qj';   u2_all(j) = uuj(2);
     if ~okj, nbad = nbad + 1; end
 end
@@ -93,8 +104,17 @@ J_Si_y = J_Si_V_y + J_Si_I_y + J_Si_drift_y;
 J_V_y  = J_V_diff_y + J_V_drift_y;
 J_I_y  = J_I_diff_y + J_I_drift_y;
 
-J_O = JO(CO,CCr2O3,CFe3O4,CFeCr2O4,CSiO2,p.DO0,p.slab, ...
-         p.DCr2O3,p.DFe3O4,p.DFeCr2O4,p.DSiO2,p.dy);
+% ---------------- 沿 GB 的 O 输运 (式 (13)) ----------------
+% 通道半宽 L 与有效扩散系数 D_eff 用同一个宽度 chan_width(S, slab) (见 calc_DO)。
+S_ox = CCr2O3 + CFe3O4 + CFeCr2O4 + CSiO2;
+if use_mu
+    [L_n, dLdS] = chan_width(S_ox, p.slab);
+else
+    L_n = p.slab * ones(ny,1);   dLdS = zeros(ny,1);   % 旧模型: 通道宽度固定, 无稀释
+end
+D_n = calc_DO(CCr2O3, CFe3O4, CFeCr2O4, CSiO2, ...
+              p.DO0, p.slab, p.DCr2O3, p.DFe3O4, p.DFeCr2O4, p.DSiO2);
+J_O = JO(CO, D_n, L_n, p.dy);
 
 % ---------------- 时间导数 ----------------
 dCr = dsolutedt(J_Cr_x, J_Cr_y, p.dx, p.dy, J_r_Cr);
@@ -107,16 +127,18 @@ dV = dVdt(J_V_x,J_V_y,p.dx,p.dy,I,V, p.eff*p.dose_rate, p.recomb_rate, ...
 dI = dIdt(J_I_x,J_I_y,p.dx,p.dy,I,V, p.eff*p.dose_rate, p.recomb_rate, ...
           p.I_init,p.V_init,p.Ks,lattice_velocity_x);
 
-Q_O = sum(q_all, 2);
-% Robin BC: J·n = kRobin/(sqrt(t)+10)*(O_DCB - CO(1)), +y(入通道)为正
-J_surf = p.kRobin/(sqrt(t) + 10) * (p.O_DCB - CO(1));
-dO = dOdt(CO, J_O, Q_O, p.dy, p.slab, J_surf);
-
-% 氧化物厚度
+% 氧化物厚度 (先算, dO 的稀释项要用 dL/dt)
 dCr2O3   = p.rOM*(1/3)*qCr  .* convCr2O3;
 dSiO2    = p.rOM*(1/2)*qSi  .* convSiO2;
 dFe3O4   = p.rOM*(1/4)*qMag .* convFe3O4;
 dFeCr2O4 = p.rOM*(1/4)*qSpin.* convFeCr2O4;
+dLdt = dLdS .* (dCr2O3 + dSiO2 + dFe3O4 + dFeCr2O4);   % 通道变宽速率 (链式法则)
+
+Q_O = sum(q_all, 2);                                   % 界面总消耗 Jr = Σ_k q_k
+% Robin BC: J·n = kRobin/(sqrt(t)+10)*(O_DCB - CO(1)), +y(入通道)为正, 单位截面积
+J_surf = p.kRobin/(sqrt(t) + 10) * (p.O_DCB - CO(1));
+% L dC̄/dt = -div(D L dC̄/dy) - Jr - C̄ dL/dt   (旧闭合: L=slab, dLdt=0, 与原式相同)
+dO = dOdt(CO, J_O, Q_O, L_n, dLdt, p.dy, J_surf);
 
 % Dirichlet 导数置零
 dV(:,1)   = 0;

@@ -1,17 +1,11 @@
-function J_O = JO(CO,CCr2O3,CFe3O4,CFeCr2O4,CSiO2,DO0,slab,DCr2O3,DFe3O4,DFeCr2O4,DSiO2,dy)
-[ny,nx] = size(CO);
-ny = ny-1;
-J_O= zeros(ny,1);
-% for i = 1:ny
-%     DO = calc_DO((CCr2O3(i,1)+CCr2O3(i+1,1))/2,(CFe3O4(i,1)+CFe3O4(i+1,1))/2,(CFeCr2O4(i,1)+CFeCr2O4(i+1,1))/2,(CSiO2(i,1)+CSiO2(i+1,1))/2,DO0,slab,DCr2O3,DFe3O4,DFeCr2O4,DSiO2);
-%     grad = (CO(i+1,1)-CO(i,1))/dy;
-%     J_O(i,1)=-DO*grad;
-% end
-% 改后：节点 D 用 calc_DO（并联 EMT 不变），面值取两节点调和
-D_n = calc_DO(CCr2O3(:,1),CFe3O4(:,1),CFeCr2O4(:,1),CSiO2(:,1), ...
-              DO0,slab,DCr2O3,DFe3O4,DFeCr2O4,DSiO2);      % ny×1 节点值
-Dl  = D_n(1:end-1);   Dr = D_n(2:end);
-Df  = 2*Dl.*Dr ./ (Dl + Dr + 1e-300);                      % (ny-1)×1 面值
-% Df  = (Dl + Dr)/2;  
-J_O = -Df .* diff(CO(:,1)) / dy;    
+function J_O = JO(CO, D_n, L_n, dy)
+% 沿 GB 的截面积分 O 通量 (式 (13)):  J_O = -(D_eff*L) dC̄/dy
+%   D_n, L_n: 节点的有效扩散系数与通道半宽 (ny×1), 由 rhs 用 calc_DO / chan_width 算好。
+%   面电导 G = D*L 取两节点调和平均 (与原先对 D 的处理一致)。
+%   旧闭合 (p.closure='node') 传 L_n = slab 常数, 结果与原来的 -D_f dC/dy 只差常数因子
+%   slab, 在 dOdt 里再除回去, 逐位等价。
+G_n = D_n(:) .* L_n(:);                                   % ny×1
+Gl  = G_n(1:end-1);   Gr = G_n(2:end);
+Gf  = 2*Gl.*Gr ./ (Gl + Gr + 1e-300);                     % (ny-1)×1 面值
+J_O = -Gf .* diff(CO(:,1)) / dy;
 end

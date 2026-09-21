@@ -20,6 +20,10 @@ tag     = sprintf('%g', p.dose);
 if isfield(p,'handoff_reset_defects') && p.handoff_reset_defects
     tag = [tag '_reset'];
 end
+% 侧向闭合不同的两版结果也不互相覆盖: 'laplace' 另存到 dose<x>_laplace ('node' 沿用旧目录)
+if isfield(p,'closure') && ~isempty(p.closure) && ~strcmp(p.closure,'node')
+    tag = [tag '_' p.closure];
+end
 outdir  = fullfile(codedir, 'decouple', ['dose' tag]);
 ckptdir = fullfile(codedir, 'checkpoint', ['decouple_dose' tag]);
 if ~exist(outdir,'dir'),  mkdir(outdir);  end
@@ -61,7 +65,8 @@ if isfile(ckpt)
     t1 = S.t1;  t2 = S.t2;  p1 = S.p1;  p2 = S.p2;
     % 数值参数不随 checkpoint 冻结: 用当前 build_p_* 的值覆盖存档里的旧值。
     % (opts 本来就是用新 p 重建的; 这里同步的是 rhs_aks 直接读的那些字段。)
-    for f = {'logfloor_C','atol_def'}
+    % closure/tolMu 也同步: 目录已按 closure 分开, 同一目录下的存档必然是同一闭合。
+    for f = {'logfloor_C','atol_def','closure','tolMu'}
         if isfield(p, f{1}), p1.(f{1}) = p.(f{1});  p2.(f{1}) = p.(f{1});  end
     end
     fprintf('[resume] 氧化段从窗 %d/%d 续算 (dose=%g dpa)\n', kstart, nS, p.dose);

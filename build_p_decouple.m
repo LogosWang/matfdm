@@ -70,20 +70,29 @@ p.Cr2O3_init = 0.0;  p.Fe3O4_init = 0.0;
 p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
-p.DCr2O3O  = 3e-06;      % O 穿内层
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 2e-4;  p.DFeCr2O4 = 4.374146022e-05;  p.DSiO2 = 0.4;
+p.DCr2O3O  = 2e-06;      % O 穿内层
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 9e-3;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 0.06;
  
 % ---- 界面动力学 (nm/s) ----
-p.kCr = 0.3;  p.kSi = 6.38484968e-2;  p.kFe = 1.5e-05;  p.kspin = 4e-4;
+p.kCr = 0.3;  p.kSi = 3e-2;  p.kFe = 5e-06;  p.kspin = 4e-4;
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
-p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.0004;  p.E_spin = 0;
-p.kRobin = 1;
+p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.001;  p.E_spin = 0;
+p.kRobin = 0.4;
 % O场(水归一)与金属(site fraction)的原子当量换算: rOM = C_O,ref/Nden
 % 满水通道 O 密度锚 ~33/87≈0.38; 稀载流子则 <<1。=1 完全还原旧行为。
 p.rOM = 22/87;
+% ---- 侧向闭合 (gb_channel_closure_derivation.pdf) ----
+%   'laplace': 整个氧化物截面为 O 通道, 半宽 L = max(slab, ΣL_k) (模型域是镜像一半,
+%              空 GB 全宽 2*slab); 沿 GB 电导 D_eff*L, 储存 d(L*C̄)/dt (含稀释),
+%              界面通量由 Laplace 基模本征值 mu 给出 (solve_mu / mu_closure)。
+%   'node'   : 旧模型, 固定 slab 通道 + 膜电导 D/(ΣL_k+Lmin) 闭合 (solve_node)。
+% 两者的输出目录与 checkpoint 分开 (run_ckpt_decouple 按 closure 打 tag)。
+p.closure = 'laplace';
+p.tolMu   = 1e-10;      % mu 迭代的相对收敛容差 (|g| <= tolMu*(D mu^2 C/L + Q))
+
 % ---- 数值 ----
-p.Lmin = 0.3;  p.epsP = 1e-5;  p.epsC = 1e-12;  p.tolNode = 1e-12;
+p.Lmin = 0.3;  p.epsP = 1e-5;  p.epsC = 1e-12;  p.tolNode = 1e-12;   % Lmin/tolNode 仅 'node' 用
 p.kdiss = 0;
 
 % ---- 求解器数值参数 (全部可调, run_ckpt_decouple 读这些字段建 odeset) ----

@@ -31,11 +31,16 @@ O_t       = Y2(b+     1:b+  ny,:);  Cr2O3_t   = Y2(b+  ny+1:b+2*ny,:);
 Fe3O4_t   = Y2(b+2*ny+1:b+3*ny,:);  FeCr2O4_t = Y2(b+3*ny+1:b+4*ny,:);
 SiO2_t    = Y2(b+4*ny+1:b+5*ny,:);
 
+% ---------- 派生量: 沿 GB 的有效 O 扩散系数 D_eff(y,t) ----------
+% 与 rhs_aks 用的是同一个 calc_DO (按通道半宽 chan_width 的体积分数混合), 逐元素可向量化。
+Deff_t = calc_DO(Cr2O3_t, Fe3O4_t, FeCr2O4_t, SiO2_t, ...
+                 p.DO0, p.slab, p.DCr2O3, p.DFe3O4, p.DFeCr2O4, p.DSiO2);   % ny x nt2
+
 % ---------- 落盘: 氧化段完整轨迹 ----------
 t_out = t2;
 save(fullfile(outdir,'fields_timeseries.mat'), ...
      'V_t','I_t','Cr_t','Fe_t','Ni_t','Si_t', ...
-     'O_t','Cr2O3_t','Fe3O4_t','FeCr2O4_t','SiO2_t','t_out','p','-v7.3');
+     'O_t','Cr2O3_t','Fe3O4_t','FeCr2O4_t','SiO2_t','Deff_t','t_out','p','-v7.3');
 
 % ---------- 落盘: 氧化段末态 (生产同名) ----------
 writematrix(V_t (:,:,end), fullfile(outdir,'V_final.csv'));
@@ -49,6 +54,7 @@ writematrix(Cr2O3_t  (:,end), fullfile(outdir,'Cr2O3_final.csv'));
 writematrix(Fe3O4_t  (:,end), fullfile(outdir,'Fe3O4_final.csv'));
 writematrix(FeCr2O4_t(:,end), fullfile(outdir,'FeCr2O4_final.csv'));
 writematrix(SiO2_t   (:,end), fullfile(outdir,'SiO2_final.csv'));
+writematrix(Deff_t   (:,end), fullfile(outdir,'Deff_final.csv'));
 
 % ---------- 落盘: 辐照段末态 (RIS 对标) ----------
 writematrix(V_1 (:,:,end), fullfile(outdir,'V_irrfinal.csv'));
@@ -185,6 +191,19 @@ for f = 1:4
     set(gca,'FontSize',20); legend('show','Location','best','FontSize',14);
     savepng(sprintf('%s_interface_along_GB_oxi', elem_lbl{f}));
 end
+
+% --- 图 30: D_eff 沿 y (氧化段), 对数纵轴 (DO0 与 DCr2O3 差 5 个量级) ---
+figure(30); clf; hold on; box on;
+for k = 1:numel(idx2)
+    i = idx2(k);
+    plot(y, Deff_t(:,i), 'LineWidth',2.5, 'Color',colors2(k,:), ...
+         'DisplayName',sprintf('t = %.2e s', t2(i)));
+end
+set(gca,'YScale','log');
+xlabel('y (nm) — along GB','FontSize',24); ylabel('D^{eff}_O (nm^2/s)','FontSize',24)
+title(sprintf('Effective O diffusivity along GB, %s', tit_oxi),'FontSize',18)
+set(gca,'FontSize',20); legend('show','Location','best','FontSize',14);
+savepng('Deff_along_GB');
 
 fprintf('后处理完成 (decouple), 全部输出 -> %s\n', outdir);
 end
