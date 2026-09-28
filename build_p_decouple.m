@@ -10,12 +10,12 @@ function p = build_p_decouple(dose)
 % 改物理参数只改这里。
  
 p.dim   = 2;
-p.nx    = 50;
+p.nx    = 100;
 p.ny    = 150;
  
 p.dt          = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;
-p.dx    = 1;
+p.dx    = 0.2;
 p.dy    = 2;
 % p.t_end = 1e7;
 
@@ -25,6 +25,13 @@ p.num_output = 10;
 % ---- 缺陷场 ----
 p.V_init = 1e-13;  p.V_DBC = 1e-13;
 p.I_init = 1e-30;  p.I_DBC = 1e-30;
+
+% GB 缺陷汇 (x=1 列) 的边界条件:
+%   'robin'    : J_V·n = kgbV*(C_V - C_V^eq), J_I·n = kgbI*(C_I - C_I^eq), n 指向 GB;
+%                C_eq 取 V_DBC / I_DBC。i=1 为半控制体, V/I 在 GB 上是活的。
+%   'dirichlet': 旧行为, V(:,1)=V_DBC, I(:,1)=I_DBC 钉死。
+p.gb_defect_bc = 'robin';
+p.kgbV = 2e4;   p.kgbI = 2e4;      % nm/s (与 D/dx ~ 1e5 nm/s 同量级 = 中等强度汇)
 
 % 重置目标 = 热平衡浓度 (仅 handoff_reset_defects=true 时用到)。
 % 取成与 Veq/Ieq 一致, 重置后 Ks*(Veq-V) 恒为 0。
@@ -39,15 +46,15 @@ p.def_floor_I = 1e-30;
 p.handoff_reset_defects = false;
 
 p.Ks = 0.0;
-DCrV = 1.75e7;
-DFeV = 1.5e7;
-DNiV = 1.3e7;
-DSiV = 1.7e7;
+DCrV = 5e4;
+DFeV = 3e4;
+DNiV = 2e4;
+DSiV = 5e4;
 p.DV = [DCrV, DFeV, DNiV,DSiV];
-DCrI = 2e6;
-DFeI = 2e6;
-DNiI = 2e6;
-DSiI = 4.5e6;
+DCrI = 2e4;
+DFeI = 2e4;
+DNiI = 2e4;
+DSiI = 2e5;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.78;
 p.f0I = 0.44;
@@ -71,17 +78,23 @@ p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
 p.DCr2O3O  = 2e-06;      % O 穿内层
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 9e-3;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 0.06;
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 9e-4;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 0.07;
  
 % ---- 界面动力学 (nm/s) ----
-p.kCr = 0.3;  p.kSi = 3e-2;  p.kFe = 5e-06;  p.kspin = 4e-4;
+p.kCr = 5e-4;  p.kSi = 5e-4;  p.kFe = 5e-5;  p.kspin = 8e-6;
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
-p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.001;  p.E_spin = 0;
+p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.0;  p.E_spin = 0;
 p.kRobin = 0.4;
 % O场(水归一)与金属(site fraction)的原子当量换算: rOM = C_O,ref/Nden
 % 满水通道 O 密度锚 ~33/87≈0.38; 稀载流子则 <<1。=1 完全还原旧行为。
 p.rOM = 22/87;
+% ---- 界面扫掠与俘获 (rhs_aks 里的 rearrange 旋钮) ----
+% 扫掠速率 s = max_i R_i^ox/c_i 由氧化需求反推 (通常 = R_Cr/c_Cr, 早期 ~1e-2 nm/s,
+% 扩散限制后随 Jr 一起下降); 未氧化的扫入金属 (Fe/Ni) 按 λ = s/(s+v_rearr) 被俘获消耗。
+% v_rearr = Inf 完全还原旧行为 (不俘获); v_rearr = 0 全俘获。待标定。
+p.v_rearr = 1e-7;        % nm/s, 界面 rearrange 速度
+
 % ---- 侧向闭合 (gb_channel_closure_derivation.pdf) ----
 %   'laplace': 整个氧化物截面为 O 通道, 半宽 L = max(slab, ΣL_k) (模型域是镜像一半,
 %              空 GB 全宽 2*slab); 沿 GB 电导 D_eff*L, 储存 d(L*C̄)/dt (含稀释),
@@ -122,7 +135,7 @@ p.logfloor_C = 1e-12;    % 金属浓度 (实际量级 1e-3~0.7); 介质 V/I 不�
 p.max_step   = 9000;
 
 % ---- 物性 ----
-p.slab = 1;  p.DO0 = p.DSiO2;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
+p.slab = 0.05;  p.DO0 = p.DSiO2;  p.DOmax = 10;  p.alpha = 2.0;  p.oxide_character = 0.08;
 p.NA = 6.02e23;  p.Nden = 87;
 p.Cr2O3den   = 5.22e-21;  p.Cr2O3mass   = 151.99;
 p.Fe3O4den   = 5.17e-21;  p.Fe3O4mass   = 231.53;

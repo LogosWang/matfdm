@@ -19,8 +19,14 @@ CFeCr2O4 = y(base + 3*ny + 1 : base + 4*ny);
 CSiO2    = y(base + 4*ny + 1 : base + 5*ny);
 
 % 强制 Dirichlet（按整条边）
-V(:, 1)    = p.V_DBC;
-I(:, 1)    = p.I_DBC;
+% GB 缺陷汇 (i=1): p.gb_defect_bc = 'robin'  ->  J·n = k_gb*(C - C_eq), 见下面 J_gbV/J_gbI
+%                                  'dirichlet' (缺省, 旧行为) -> V(:,1)=V_DBC, I(:,1)=I_DBC
+if isfield(p,'gb_defect_bc') && ~isempty(p.gb_defect_bc), gb_bc = p.gb_defect_bc; else, gb_bc = 'dirichlet'; end
+robin_def = strcmp(gb_bc, 'robin');
+if ~robin_def
+    V(:, 1)    = p.V_DBC;
+    I(:, 1)    = p.I_DBC;
+end
 CCr(:, nx) = p.Cr_DCB;
 CFe(:, nx) = p.Fe_DCB;
 CNi(:, nx) = p.Ni_DCB;
@@ -70,7 +76,31 @@ v_ox   = p.rOM * ((2/3)*qCr + 0.5*qSi + 0.75*qMag + 0.75*qSpin);
 J_r_Cr = -p.rOM * ((2/3)*qCr + (1/2)*qSpin);
 J_r_Si = -p.rOM * (1/2)*qSi;
 J_r_Fe = -p.rOM * (0.75*qMag + 0.25*qSpin);
-J_r_Ni = -0.0;
+J_r_Ni = zeros(ny, 1);
+
+% ---------------- 界面扫掠与俘获 (rearrange 旋钮) ----------------
+% 第一步 氧化速率照旧: solve_mu / q_k 不动, R_i = -J_r_i >= 0 是各元素的氧化消耗
+%        (site fraction × nm/s)。
+% 第二步 扫掠速率由氧化需求反推:  s = max_i R_i / c_i  (nm/s), c_i = 界面处金属浓度 (j,1)。
+%        界面必须扫过这么厚的金属才能供上氧化最快的元素 (实际是 Cr: s = R_Cr/c_Cr)。
+%        扫进来的金属 s*c_i 中未被氧化的部分 s*c_i - R_i >= 0 (Fe/Ni 为主) 是"游离物"。
+% 第三步 rearrange 旋钮:  λ = s/(s + v_r),  v_r = p.v_rearr (nm/s)。
+%        游离物的 λ 份被俘获 (一并从金属场消耗), (1-λ) 份被界面 rearrange 推回金属。
+%        v_r >> s: λ→0 不俘获 (= 旧行为, p.v_rearr = Inf 完全还原);  v_r << s: λ→1 全俘获。
+% 俘获量与 J_r 同货币加进各元素的汇, 于是 dsolutedt 与 lattice_velocity_x 自动带上,
+% 质量守恒机制与氧化消耗相同。俘获的金属只从金属场移除, 不进入氧化物厚度 (未追踪)。
+if isfield(p,'v_rearr') && ~isempty(p.v_rearr), v_r = p.v_rearr; else, v_r = Inf; end
+if isfinite(v_r)
+    c_int = [CCr(:,1), CFe(:,1), CNi(:,1), CSi(:,1)];           % ny×4
+    R_ox  = max(-[J_r_Cr, J_r_Fe, J_r_Ni, J_r_Si], 0);          % ny×4, 氧化消耗
+    s_sw  = max(R_ox ./ max(c_int, p.epsC), [], 2);             % ny×1, 扫掠速率
+    lam   = s_sw ./ max(s_sw + v_r, realmin);                   % ny×1, s=0 时 λ=0
+    capt  = lam .* max(s_sw .* c_int - R_ox, 0);                % ny×4, 被俘获的游离物
+    J_r_Cr = J_r_Cr - capt(:,1);
+    J_r_Fe = J_r_Fe - capt(:,2);
+    J_r_Ni = J_r_Ni - capt(:,3);
+    J_r_Si = J_r_Si - capt(:,4);
+end
 
 % 氧化物体积换算 (下面 dCr2O3 等要用)
 convCr2O3   = p.Nden*p.Cr2O3mass   /(p.NA*p.Cr2O3den);
@@ -122,10 +152,19 @@ dFe = dsolutedt(J_Fe_x, J_Fe_y, p.dx, p.dy, J_r_Fe);
 dNi = dsolutedt(J_Ni_x, J_Ni_y, p.dx, p.dy, J_r_Ni);
 dSi = dsolutedt(J_Si_x, J_Si_y, p.dx, p.dy, J_r_Si);
 
+% GB 缺陷汇 Robin BC:  J_V·n = kgbV*(C_V - C_V^eq),  J_I·n = kgbI*(C_I - C_I^eq),
+% n = 外法向 (指向 GB, 即 -x), 所以 GB 面上 +x 方向的通量是 J_gb = -k_gb*(C - C_eq)。
+% C_eq 沿用 V_DBC / I_DBC 字段 (= 热平衡值)。Dirichlet 模式传空, dVdt/dIdt 走旧路径。
+if robin_def
+    J_gbV = -p.kgbV * (V(:,1) - p.V_DBC);
+    J_gbI = -p.kgbI * (I(:,1) - p.I_DBC);
+else
+    J_gbV = [];  J_gbI = [];
+end
 dV = dVdt(J_V_x,J_V_y,p.dx,p.dy,I,V, p.eff*p.dose_rate, p.recomb_rate, ...
-          p.V_init,p.I_init,p.Ks,lattice_velocity_x);
+          p.V_init,p.I_init,p.Ks,lattice_velocity_x, J_gbV);
 dI = dIdt(J_I_x,J_I_y,p.dx,p.dy,I,V, p.eff*p.dose_rate, p.recomb_rate, ...
-          p.I_init,p.V_init,p.Ks,lattice_velocity_x);
+          p.I_init,p.V_init,p.Ks,lattice_velocity_x, J_gbI);
 
 % 氧化物厚度 (先算, dO 的稀释项要用 dL/dt)
 dCr2O3   = p.rOM*(1/3)*qCr  .* convCr2O3;
@@ -140,9 +179,11 @@ J_surf = p.kRobin/(sqrt(t) + 10) * (p.O_DCB - CO(1));
 % L dC̄/dt = -div(D L dC̄/dy) - Jr - C̄ dL/dt   (旧闭合: L=slab, dLdt=0, 与原式相同)
 dO = dOdt(CO, J_O, Q_O, L_n, dLdt, p.dy, J_surf);
 
-% Dirichlet 导数置零
-dV(:,1)   = 0;
-dI(:,1)   = 0;
+% Dirichlet 导数置零 (Robin 模式下 i=1 的 V/I 是活的)
+if ~robin_def
+    dV(:,1)   = 0;
+    dI(:,1)   = 0;
+end
 dCr(:,nx) = 0;
 dFe(:,nx) = 0;
 dNi(:,nx) = 0;
