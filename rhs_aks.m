@@ -84,17 +84,22 @@ J_r_Ni = zeros(ny, 1);
 % 第二步 扫掠速率由氧化需求反推:  s = max_i R_i / c_i  (nm/s), c_i = 界面处金属浓度 (j,1)。
 %        界面必须扫过这么厚的金属才能供上氧化最快的元素 (实际是 Cr: s = R_Cr/c_Cr)。
 %        扫进来的金属 s*c_i 中未被氧化的部分 s*c_i - R_i >= 0 (Fe/Ni 为主) 是"游离物"。
-% 第三步 rearrange 旋钮:  λ = s/(s + v_r),  v_r = p.v_rearr (nm/s)。
-%        游离物的 λ 份被俘获 (一并从金属场消耗), (1-λ) 份被界面 rearrange 推回金属。
-%        v_r >> s: λ→0 不俘获 (= 旧行为, p.v_rearr = Inf 完全还原);  v_r << s: λ→1 全俘获。
+% 第三步 rearrange 旋钮, 每个元素独立:  λ_i = s/(s + v_r,i),  v_r = p.v_rearr (nm/s),
+%        1×4 向量按 [Cr Fe Ni Si] 排 (标量则四元素同值)。扫掠速率 s 仍是全元素共用的一个。
+%        游离物的 λ_i 份被俘获 (一并从金属场消耗), (1-λ_i) 份被界面 rearrange 推回金属。
+%        v_r,i >> s: λ_i→0 该元素不俘获 (= 旧行为, Inf 完全还原);  v_r,i << s: λ_i→1 全俘获。
 % 俘获量与 J_r 同货币加进各元素的汇, 于是 dsolutedt 与 lattice_velocity_x 自动带上,
 % 质量守恒机制与氧化消耗相同。俘获的金属只从金属场移除, 不进入氧化物厚度 (未追踪)。
-if isfield(p,'v_rearr') && ~isempty(p.v_rearr), v_r = p.v_rearr; else, v_r = Inf; end
-if isfinite(v_r)
+if isfield(p,'v_rearr') && ~isempty(p.v_rearr), v_r = p.v_rearr(:).'; else, v_r = Inf; end
+if isscalar(v_r), v_r = repmat(v_r, 1, 4); end                  % 旧标量参数/旧 checkpoint 兼容
+if numel(v_r) ~= 4
+    error('rhs_aks:v_rearr', 'p.v_rearr 必须是标量或 1x4 向量 [Cr Fe Ni Si], 现在有 %d 个元素', numel(v_r));
+end
+if any(isfinite(v_r))
     c_int = [CCr(:,1), CFe(:,1), CNi(:,1), CSi(:,1)];           % ny×4
     R_ox  = max(-[J_r_Cr, J_r_Fe, J_r_Ni, J_r_Si], 0);          % ny×4, 氧化消耗
     s_sw  = max(R_ox ./ max(c_int, p.epsC), [], 2);             % ny×1, 扫掠速率
-    lam   = s_sw ./ max(s_sw + v_r, realmin);                   % ny×1, s=0 时 λ=0
+    lam   = s_sw ./ max(s_sw + v_r, realmin);                   % ny×4, s=0 或 v_r=Inf 时 λ=0
     capt  = lam .* max(s_sw .* c_int - R_ox, 0);                % ny×4, 被俘获的游离物
     J_r_Cr = J_r_Cr - capt(:,1);
     J_r_Fe = J_r_Fe - capt(:,2);

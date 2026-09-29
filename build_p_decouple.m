@@ -31,7 +31,7 @@ p.I_init = 1e-30;  p.I_DBC = 1e-30;
 %                C_eq 取 V_DBC / I_DBC。i=1 为半控制体, V/I 在 GB 上是活的。
 %   'dirichlet': 旧行为, V(:,1)=V_DBC, I(:,1)=I_DBC 钉死。
 p.gb_defect_bc = 'robin';
-p.kgbV = 2e4;   p.kgbI = 2e4;      % nm/s (与 D/dx ~ 1e5 nm/s 同量级 = 中等强度汇)
+
 
 % 重置目标 = 热平衡浓度 (仅 handoff_reset_defects=true 时用到)。
 % 取成与 Veq/Ieq 一致, 重置后 Ks*(Veq-V) 恒为 0。
@@ -45,16 +45,18 @@ p.def_floor_I = 1e-30;
 % 两版结果分开存: true 时输出目录/checkpoint 变成 dose<x>_reset, 不覆盖默认版。
 p.handoff_reset_defects = false;
 
+
+p.kgbV = 200;   p.kgbI = 200000;     
 p.Ks = 0.0;
-DCrV = 5e4;
-DFeV = 3e4;
-DNiV = 2e4;
-DSiV = 5e4;
+DCrV = 7e2;
+DFeV = 3.5e2;
+DNiV = 2e2;
+DSiV = 7e2;
 p.DV = [DCrV, DFeV, DNiV,DSiV];
-DCrI = 2e4;
-DFeI = 2e4;
-DNiI = 2e4;
-DSiI = 2e5;
+DCrI = 2.5e5;
+DFeI = 2.5e5;
+DNiI = 2.5e5;
+DSiI = 7.5e6;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.78;
 p.f0I = 0.44;
@@ -78,7 +80,7 @@ p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
 p.DCr2O3O  = 2e-06;      % O 穿内层
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 9e-4;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 0.07;
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 2e-4;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 0.15;
  
 % ---- 界面动力学 (nm/s) ----
 p.kCr = 5e-4;  p.kSi = 5e-4;  p.kFe = 5e-5;  p.kspin = 8e-6;
@@ -92,8 +94,10 @@ p.rOM = 22/87;
 % ---- 界面扫掠与俘获 (rhs_aks 里的 rearrange 旋钮) ----
 % 扫掠速率 s = max_i R_i^ox/c_i 由氧化需求反推 (通常 = R_Cr/c_Cr, 早期 ~1e-2 nm/s,
 % 扩散限制后随 Jr 一起下降); 未氧化的扫入金属 (Fe/Ni) 按 λ = s/(s+v_rearr) 被俘获消耗。
-% v_rearr = Inf 完全还原旧行为 (不俘获); v_rearr = 0 全俘获。待标定。
-p.v_rearr = 1e-7;        % nm/s, 界面 rearrange 速度
+% 每个元素单独一个 rearrange 速度, 顺序 [Cr Fe Ni Si] (与 rhs_aks 里 c_int/R_ox 的列序一致):
+%   λ_i = s/(s + v_rearr_i)。某元素 = Inf 即该元素不俘获 (旧行为); = 0 即该元素全俘获。
+% 标量仍兼容 (rhs_aks 会展开成四个相同值)。待标定。
+p.v_rearr = [1e-5, 1e-7, 1e-4, 1e-5];   % nm/s, [Cr Fe Ni Si]
 
 % ---- 侧向闭合 (gb_channel_closure_derivation.pdf) ----
 %   'laplace': 整个氧化物截面为 O 通道, 半宽 L = max(slab, ΣL_k) (模型域是镜像一半,
