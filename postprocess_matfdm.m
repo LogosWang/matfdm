@@ -35,6 +35,12 @@ writematrix(Fe3O4_t  (:,end), fullfile(outdir,'Fe3O4_final.csv'));
 writematrix(FeCr2O4_t(:,end), fullfile(outdir,'FeCr2O4_final.csv'));
 writematrix(SiO2_t   (:,end), fullfile(outdir,'SiO2_final.csv'));
  
+% ---------- 出图开关: p.make_plots (缺省 false) 为 false 时到此为止, 只落盘 mat + csv ----------
+if ~(isfield(p,'make_plots') && ~isempty(p.make_plots) && p.make_plots)
+    fprintf('后处理完成 (未出图, p.make_plots=false), 全部输出 -> %s\n', outdir);
+    return
+end
+
 % ================= 绘图 (与 main 一致, -nodisplay 下正常保存 png) =================
 x = (0:nx-1)*p.dx;  y = (0:ny-1)*p.dy;  j_mid = round(ny/2);
 idx = 1:10:nt;  colors = parula(numel(idx));

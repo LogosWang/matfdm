@@ -64,6 +64,12 @@ writematrix(Fe_1(:,:,end), fullfile(outdir,'Fe_irrfinal.csv'));
 writematrix(Ni_1(:,:,end), fullfile(outdir,'Ni_irrfinal.csv'));
 writematrix(Si_1(:,:,end), fullfile(outdir,'Si_irrfinal.csv'));
 
+% ---------- 出图开关: p.make_plots (缺省 false) 为 false 时到此为止, 只落盘 mat + csv ----------
+if ~(isfield(p,'make_plots') && ~isempty(p.make_plots) && p.make_plots)
+    fprintf('后处理完成 (decouple, 未出图, p.make_plots=false), 全部输出 -> %s\n', outdir);
+    return
+end
+
 % ================= 绘图 =================
 x = (0:nx-1)*p.dx;  y = (0:ny-1)*p.dy;  j_mid = round(ny/2);
 idx1 = 1:10:nt1;  colors1 = parula(numel(idx1));

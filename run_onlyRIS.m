@@ -9,6 +9,14 @@ function run_onlyRIS(p)
 %
 % 输出:      <codedir>/onlyRIS/dose<p.dose>/            csv + png + fields_timeseries.mat
 % checkpoint: <codedir>/checkpoint/onlyRIS_dose<p.dose>/checkpoint.mat
+%
+% 可选覆盖 (scan_dx_onlyRIS 等批量壳子用, 缺省时行为与原来完全相同):
+%   p.outdir    输出目录;  p.ckptdir  checkpoint 目录
+%   p.skip_post true 时不做后处理, 只把采样轨迹存成 <outdir>/raw_timeseries.mat
+%               (Y1 sel, t1 sel, p1), 后处理交给调用方 (parfor worker 上不画图)。
+%   p.no_ckpt   true 时不存 checkpoint: 单次 ode15s 跑完 [0, irr_time], 切片由 tspan
+%               向量给出 (与 run_ckpt_decouple 的辐照段相同), 不建 checkpoint 目录,
+%               也不能续算。扫描模式 (scan_dx_onlyRIS) 默认用它。
 
 % ---------- 路径 ----------
 codedir = fileparts(mfilename('fullpath'));
@@ -16,10 +24,11 @@ codedir = fileparts(mfilename('fullpath'));
 % DOSES = ['0.5dpa','3.0dpa'] 对齐 (它按 f'dose{dose}' 拼路径, 对不上会 assert)。
 % 用 %.1f 而不是 %g, 否则 3.0 会变成 "3" 而 notebook 要的是 "3.0"。
 tag     = sprintf('%.1fdpa', p.dose);
-outdir  = fullfile(codedir, 'onlyRIS', ['dose' tag]);
-ckptdir = fullfile(codedir, 'checkpoint', ['onlyRIS_dose' tag]);
+outdir  = getf(p, 'outdir',  fullfile(codedir, 'onlyRIS', ['dose' tag]));
+ckptdir = getf(p, 'ckptdir', fullfile(codedir, 'checkpoint', ['onlyRIS_dose' tag]));
+no_ckpt = getf(p, 'no_ckpt', false);
 if ~exist(outdir,'dir'),  mkdir(outdir);  end
-if ~exist(ckptdir,'dir'), mkdir(ckptdir); end
+if ~no_ckpt && ~exist(ckptdir,'dir'), mkdir(ckptdir); end
 ckpt = fullfile(ckptdir, 'checkpoint.mat');
 
 % ---------- 墙钟预算 ----------
@@ -42,8 +51,18 @@ opts = odeset('RelTol',rtol, 'AbsTol',absTol, 'NonNegative',nnIdx, ...
               'JPattern',jpattern_aks(p.nx,p.ny), 'BDF','on', 'MaxOrder',2, ...
               'MaxStep',maxStp, 'Stats','off');
 
-% ---------- 载入 checkpoint 或从头 ----------
-if isfile(ckpt)
+% ---------- 无 checkpoint 模式: 一次积分到底 ----------
+if no_ckpt
+    nS = max(nS, 2);  t1 = linspace(0, p.irr_time, nS+1);   % >=3 个点, 走 ode15s 预分配输出分支
+    y0 = initial_state(p1);
+    fprintf('[ris] 辐照段 (no_ckpt): dose=%g dpa @ %.2g dpa/s, t=%.3e s (%.0f h), %d 切片\n', ...
+            p.dose, p.dose_rate, p.irr_time, p.irr_time/3600, nS+1);
+    tw = tic;
+    [~, yy] = ode15s(@(t,y) rhs_aks(t,y,p1), t1, y0, opts);
+    Y1 = yy';
+    fprintf('[ris] 辐照段完成, 耗时 %.0f s\n', toc(tw));
+    kstart = nS + 1;                          % 跳过下面的分窗循环
+elseif isfile(ckpt)
     S = load(ckpt);
     kstart = S.kdone + 1;  y0 = S.y0;  Y1 = S.Y1;  t1 = S.t1;  p1 = S.p1;
     for f = {'logfloor_C','atol_def'}
@@ -80,10 +99,16 @@ for k = kstart:nS
 end
 
 % ---------- 后处理 ----------
-fprintf('[done] 辐照段完成, 后处理 -> %s\n', outdir);
 sel = round(linspace(1, nS+1, 10*p.num_output+1));
-postprocess_onlyRIS(Y1(:,sel), t1(sel), p1, outdir);
-delete(ckpt);
+if getf(p, 'skip_post', false)
+    Y  = Y1(:,sel);  t_out = t1(sel);
+    save(fullfile(outdir,'raw_timeseries.mat'), 'Y','t_out','p1','-v7.3');
+    fprintf('[done] 辐照段完成, 原始轨迹 -> %s (skip_post)\n', fullfile(outdir,'raw_timeseries.mat'));
+else
+    fprintf('[done] 辐照段完成, 后处理 -> %s\n', outdir);
+    postprocess_onlyRIS(Y1(:,sel), t1(sel), p1, outdir);
+end
+if ~no_ckpt, delete(ckpt); end
 if batchStartupOptionUsed, exit(0); end
 end
 

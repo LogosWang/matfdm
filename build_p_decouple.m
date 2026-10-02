@@ -10,17 +10,21 @@ function p = build_p_decouple(dose)
 % 改物理参数只改这里。
  
 p.dim   = 2;
-p.nx    = 100;
-p.ny    = 150;
+p.nx    = 50;
+p.ny    = 300;
  
 p.dt          = 1e-5;
 p.GBrecovert  = 0.8 * p.dt;
-p.dx    = 0.2;
-p.dy    = 2;
+p.dx    = 1;
+p.dy    = 1;
 % p.t_end = 1e7;
 
 p.num_ckpt = 50;
 p.num_output = 10;
+
+% 后处理出图开关 (postprocess_matfdm / postprocess_decouple / postprocess_onlyRIS / scan_dx_onlyRIS 共用)。
+% false: 只落盘 fields_timeseries.mat 与 *_final.csv, 不画任何 png。true: 恢复全部图。
+p.make_plots = false;
 
 % ---- 缺陷场 ----
 p.V_init = 1e-13;  p.V_DBC = 1e-13;
@@ -46,17 +50,17 @@ p.def_floor_I = 1e-30;
 p.handoff_reset_defects = false;
 
 
-p.kgbV = 200;   p.kgbI = 200000;     
+p.kgbV = 30000;   p.kgbI = 200000;     
 p.Ks = 0.0;
-DCrV = 7e2;
-DFeV = 3.5e2;
-DNiV = 2e2;
-DSiV = 7e2;
+DCrV = 5e4;
+DFeV = 3.5e4;
+DNiV = 2.5e4;
+DSiV = 5e4;
 p.DV = [DCrV, DFeV, DNiV,DSiV];
 DCrI = 2.5e5;
 DFeI = 2.5e5;
 DNiI = 2.5e5;
-DSiI = 7.5e6;
+DSiI = 1.5e6;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.78;
 p.f0I = 0.44;
@@ -97,7 +101,7 @@ p.rOM = 22/87;
 % 每个元素单独一个 rearrange 速度, 顺序 [Cr Fe Ni Si] (与 rhs_aks 里 c_int/R_ox 的列序一致):
 %   λ_i = s/(s + v_rearr_i)。某元素 = Inf 即该元素不俘获 (旧行为); = 0 即该元素全俘获。
 % 标量仍兼容 (rhs_aks 会展开成四个相同值)。待标定。
-p.v_rearr = [1e-5, 1e-7, 1e-4, 1e-5];   % nm/s, [Cr Fe Ni Si]
+p.v_rearr = [1e-7, 1e-7, 1e-5, 1e-7];   % nm/s, [Cr Fe Ni Si]
 
 % ---- 侧向闭合 (gb_channel_closure_derivation.pdf) ----
 %   'laplace': 整个氧化物截面为 O 通道, 半宽 L = max(slab, ΣL_k) (模型域是镜像一半,
