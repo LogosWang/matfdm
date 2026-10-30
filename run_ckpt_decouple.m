@@ -24,6 +24,11 @@ end
 if isfield(p,'closure') && ~isempty(p.closure) && ~strcmp(p.closure,'node')
     tag = [tag '_' p.closure];
 end
+% Cr/Si 解耦测试 (p.handoff_flat_solute = 'Cr'/'Si') 另存到 dose<x>_..._flatCr / _flatSi;
+% 缺省 '' 时目录与原来完全一样
+if ~isempty(getf(p,'handoff_flat_solute',''))
+    tag = [tag '_flat' p.handoff_flat_solute];
+end
 outdir  = fullfile(codedir, 'decouple', ['dose' tag]);
 ckptdir = fullfile(codedir, 'checkpoint', ['decouple_dose' tag]);
 if ~exist(outdir,'dir'),  mkdir(outdir);  end
@@ -42,7 +47,7 @@ if isfield(p,'def_floor_V'), floorV = p.def_floor_V; else, floorV = p.V_init; en
 if isfield(p,'def_floor_I'), floorI = p.def_floor_I; else, floorI = p.I_init; end
 
 % ---------- 两段参数: 同一 p, 每段只改 dose_rate / O_DCB ----------
-p1 = p;  p1.O_DCB = 0;                        % 辐照段: 无 O, 纯 RIS
+p1 = p;  p1.O_DCB = 0;  p1.fGB = 0;            % 辐照段: 无 O, 纯 RIS, 无 GB 扩散加速
 p2 = p;  p2.dose_rate = 0;  p2.O_DCB = 1;     % 氧化段: 零剂量, O 开
 
 N  = p.nx*p.ny;   M = 6*N + 5*p.ny;
@@ -66,7 +71,7 @@ if isfile(ckpt)
     % 数值参数不随 checkpoint 冻结: 用当前 build_p_* 的值覆盖存档里的旧值。
     % (opts 本来就是用新 p 重建的; 这里同步的是 rhs_aks 直接读的那些字段。)
     % closure/tolMu 也同步: 目录已按 closure 分开, 同一目录下的存档必然是同一闭合。
-    for f = {'logfloor_C','atol_def','closure','tolMu'}
+    for f = {'logfloor_C','atol_def','closure','tolMu','interface_mode'}
         if isfield(p, f{1}), p1.(f{1}) = p.(f{1});  p2.(f{1}) = p.(f{1});  end
     end
     fprintf('[resume] 氧化段从窗 %d/%d 续算 (dose=%g dpa)\n', kstart, nS, p.dose);
@@ -116,6 +121,25 @@ else
                  '[handoff] (Veq=%.1e, Ieq=%.1e, dose_rate=0 => Ks 汇项以 1/Ks=%.0f s 退火)\n'], ...
                 min(y0(1:N)), max(y0(1:N)), min(y0(N+1:2*N)), max(y0(N+1:2*N)), ...
                 p2.V_init, p2.I_init, 1/p.Ks);
+    end
+
+    % ---- 交接: Cr/Si 解耦测试 ----
+    % p.handoff_flat_solute = 'Cr' 或 'Si': RIS 后把该元素全场重置为 initial 均匀值,
+    % 差额由 Fe (基体平衡元素) 补, 保证每点 site fraction 之和不变; 其余元素保留 RIS 剖面。
+    % 缺省 '' 不动。
+    fs = getf(p,'handoff_flat_solute','');
+    if ~isempty(fs)
+        switch fs
+            case 'Cr', iS = 2*N;  c0 = p.Cr_init;
+            case 'Si', iS = 5*N;  c0 = p.Si_init;
+            otherwise
+                error('run_ckpt_decouple:flatSolute', 'p.handoff_flat_solute 必须是 ''Cr'' / ''Si'' / '''', 现在是 ''%s''', fs);
+        end
+        dC = y0(iS+1 : iS+N) - c0;                % RIS 造成的偏离
+        y0(iS+1 : iS+N)   = c0;
+        y0(3*N+1 : 4*N)   = y0(3*N+1 : 4*N) + dC; % Fe 补差额
+        fprintf('[handoff] %s 场重置为均匀 %g (Fe 补差额, Fe=[%.4f, %.4f])\n', ...
+                fs, c0, min(y0(3*N+1:4*N)), max(y0(3*N+1:4*N)));
     end
 
     kstart = 1;  kdone = 0;

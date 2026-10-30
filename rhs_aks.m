@@ -90,21 +90,66 @@ J_r_Ni = zeros(ny, 1);
 %        v_r,i >> s: λ_i→0 该元素不俘获 (= 旧行为, Inf 完全还原);  v_r,i << s: λ_i→1 全俘获。
 % 俘获量与 J_r 同货币加进各元素的汇, 于是 dsolutedt 与 lattice_velocity_x 自动带上,
 % 质量守恒机制与氧化消耗相同。俘获的金属只从金属场移除, 不进入氧化物厚度 (未追踪)。
-if isfield(p,'v_rearr') && ~isempty(p.v_rearr), v_r = p.v_rearr(:).'; else, v_r = Inf; end
-if isscalar(v_r), v_r = repmat(v_r, 1, 4); end                  % 旧标量参数/旧 checkpoint 兼容
-if numel(v_r) ~= 4
-    error('rhs_aks:v_rearr', 'p.v_rearr 必须是标量或 1x4 向量 [Cr Fe Ni Si], 现在有 %d 个元素', numel(v_r));
+% 模式开关 p.interface_mode (build_p_decouple):
+%   'aziz'   : 只用本段的界面扫掠俘获 (Aziz 型 λ = s/(s+v_r))
+%   'gbdiff' : 只用下面的 GB 快速扩散 (fGB)
+%   'both'   : 两者都开; 俘获先算 (R_ox 只取氧化消耗), GB 扩散散度再叠加
+% 缺省 'aziz' (= 加 fGB 之前的原版), 使旧 checkpoint 里的 p 行为不变。
+if isfield(p,'interface_mode') && ~isempty(p.interface_mode), if_mode = p.interface_mode; else, if_mode = 'aziz'; end
+if ~any(strcmp(if_mode, {'aziz','gbdiff','both'}))
+    error('rhs_aks:interface_mode', 'p.interface_mode 必须是 ''aziz'' / ''gbdiff'' / ''both'', 现在是 ''%s''', if_mode);
 end
-if any(isfinite(v_r))
-    c_int = [CCr(:,1), CFe(:,1), CNi(:,1), CSi(:,1)];           % ny×4
-    R_ox  = max(-[J_r_Cr, J_r_Fe, J_r_Ni, J_r_Si], 0);          % ny×4, 氧化消耗
-    s_sw  = max(R_ox ./ max(c_int, p.epsC), [], 2);             % ny×1, 扫掠速率
-    lam   = s_sw ./ max(s_sw + v_r, realmin);                   % ny×4, s=0 或 v_r=Inf 时 λ=0
-    capt  = lam .* max(s_sw .* c_int - R_ox, 0);                % ny×4, 被俘获的游离物
-    J_r_Cr = J_r_Cr - capt(:,1);
-    J_r_Fe = J_r_Fe - capt(:,2);
-    J_r_Ni = J_r_Ni - capt(:,3);
-    J_r_Si = J_r_Si - capt(:,4);
+use_aziz = any(strcmp(if_mode, {'aziz','both'}));
+use_gbd  = any(strcmp(if_mode, {'gbdiff','both'}));
+if use_aziz
+    if isfield(p,'v_rearr') && ~isempty(p.v_rearr), v_r = p.v_rearr(:).'; else, v_r = Inf; end
+    if isscalar(v_r), v_r = repmat(v_r, 1, 4); end                  % 旧标量参数/旧 checkpoint 兼容
+    if numel(v_r) ~= 4
+        error('rhs_aks:v_rearr', 'p.v_rearr 必须是标量或 1x4 向量 [Cr Fe Ni Si], 现在有 %d 个元素', numel(v_r));
+    end
+    if any(isfinite(v_r))
+        c_int = [CCr(:,1), CFe(:,1), CNi(:,1), CSi(:,1)];           % ny×4
+        R_ox  = max(-[J_r_Cr, J_r_Fe, J_r_Ni, J_r_Si], 0);          % ny×4, 氧化消耗
+        s_sw  = max(R_ox ./ max(c_int, p.epsC), [], 2);             % ny×1, 扫掠速率
+        lam   = s_sw ./ max(s_sw + v_r, realmin);                   % ny×4, s=0 或 v_r=Inf 时 λ=0
+        capt  = lam .* max(s_sw .* c_int - R_ox, 0);                % ny×4, 被俘获的游离物
+        J_r_Cr = J_r_Cr - capt(:,1);
+        J_r_Fe = J_r_Fe - capt(:,2);
+        J_r_Ni = J_r_Ni - capt(:,3);
+        J_r_Si = J_r_Si - capt(:,4);
+    end
+end
+
+% ---------------- 沿 GB 的金属扩散加速 (p.fGB 旋钮) ----------------
+% 氧化段 (run_ckpt_decouple 的 p2) 打开: GB 列 i=1 上各元素沿 y 额外以
+%     D_i^GB = fGB * D_iV * V_eq,   V_eq = p.V_DBC (GB 处热平衡空位浓度, 常数)
+% 不用动态 V(:,1): Robin 缺陷 BC 下辐照后 GB 上 V 过饱和几个量级, D_GB 随之暴涨且与 V 强耦合,
+% 系统刚到 ode15s 第一步就不收敛。
+% 做 Fick 扩散, J_GB_i = -D_i^GB dC_i/dy (+y 为正)。
+% 上端 j=1 口部: 与 O 相同的 Robin, 随时间跨氧化膜变慢
+%     J_top = kRobin_gb/(sqrt(t)+10) * (C_mouth - C(1,1)),  C_mouth = p.gb_mouth_C (缺省 0, 溶入水)
+%     kRobin_gb 是金属自己的口部系数 (缺省 0.1*kRobin, 比 O 小一个量级)
+% 下端 j=ny: 实时远场 GB 储库, Dirichlet 值 = 当前时刻 (ny,1) 自己的成分。ny-1/2 面的
+%     通量按它算, 储库吸收多出的通量, GB 扩散对 (ny,1) 不产生净变化 (该点只按晶格过程演化)。
+% 散度换成 i=1 半格 (0.5*dx) 上的等效界面通量加进 J_r_i, 于是 dsolutedt 与
+% lattice_velocity_x 自动带上 (与氧化消耗同一守恒机制): 各元素 D_iV 不同,
+% Σ_i div J_GB ≠ 0, 净的原子增减驱动晶格速度。只在 interface_mode = 'gbdiff'/'both' 时生效;
+% fGB = 0 / 缺省 即关闭。
+if isfield(p,'fGB') && ~isempty(p.fGB), fGB = p.fGB; else, fGB = 0; end
+if use_gbd && fGB > 0
+    if isfield(p,'gb_mouth_C') && ~isempty(p.gb_mouth_C), C_mouth = p.gb_mouth_C(:).'; else, C_mouth = zeros(1,4); end
+    C_gb  = [CCr(:,1), CFe(:,1), CNi(:,1), CSi(:,1)];              % ny×4
+    J_gb  = -fGB * p.V_DBC * p.DV(:).' .* diff(C_gb, 1, 1) / p.dy; % (ny-1)×4, V 取 GB 热平衡值
+    if isfield(p,'kRobin_gb') && ~isempty(p.kRobin_gb), kRgb = p.kRobin_gb; else, kRgb = 0.1*p.kRobin; end
+    J_top = kRgb/(sqrt(t) + 10) * (C_mouth - C_gb(1,:));           % 1×4, 口部面
+    divJ_gb = [(J_gb(1,:) - J_top)/(p.dy/2); ...
+               (J_gb(2:end,:) - J_gb(1:end-1,:))/p.dy; ...
+               zeros(1,4)];                                        % j=ny 远场储库
+    S_gb  = -0.5*p.dx * divJ_gb;                                   % ny×4, 与 J_r 同货币
+    J_r_Cr = J_r_Cr + S_gb(:,1);
+    J_r_Fe = J_r_Fe + S_gb(:,2);
+    J_r_Ni = J_r_Ni + S_gb(:,3);
+    J_r_Si = J_r_Si + S_gb(:,4);
 end
 
 % 氧化物体积换算 (下面 dCr2O3 等要用)

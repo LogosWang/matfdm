@@ -26,7 +26,10 @@ col_gb  = [speye(ny), sparse(ny, N - ny)];       % 1D 变量 j -> (j,1) 列
 
 % --- 四块拼装 ---
 % 2D-2D: 6×6 全耦合 (V, I, Cr, Fe, Ni, Si)，每块 N×N
-JP_22 = kron(ones(6, 6), B2D);                   % 6N  × 6N
+% 外加 GB 列 -> 整行: rhs_aks 里 J_r 依赖 (j,1) 的金属 (solve_mu), fGB 的 GB 扩散散度
+% 还依赖 (j±1,1) 的金属, 再经 lattice_velocity_x 的广播进入 j 行所有列 (同上面 row_all 的道理)。
+G2D  = repmat([B1D, sparse(ny, N - ny)], nx, 1); % (j,i) <- (j',1), |j-j'|<=1
+JP_22 = kron(ones(6, 6), double((B2D + G2D) ~= 0));   % 6N  × 6N
 % 1D-1D: 5×5 全耦合 (O + 4 氧化物)，每块 ny×ny
 JP_11 = kron(ones(5, 5), B1D);                   % 5ny × 5ny
 % 2D-1D / 1D-2D: 不再互为转置，两个方向的物理依赖本来就不对称

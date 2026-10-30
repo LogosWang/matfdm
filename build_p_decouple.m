@@ -84,10 +84,12 @@ p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
 p.DCr2O3O  = 2e-06;      % O 穿内层
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 2e-4;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 0.15;
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 5e-4;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 0.15;
  
 % ---- 界面动力学 (nm/s) ----
-p.kCr = 5e-4;  p.kSi = 5e-4;  p.kFe = 5e-5;  p.kspin = 8e-6;
+p.kCr = 6e-4;  p.kSi = 7e-4;  p.kFe = 5e-5;  p.kspin = 0;   % 原 2e-5; spinel 关闭
+% kspin = 0 => aSpin = 0 => qSpin = 0 (mu_closure 中 spinel 项线性, 零值安全);
+% FeCr2O4 状态量保留, 恒为 0, 状态向量/JPattern/后处理不变。
  
 % ---- 热力学门控 (无量纲; 默认全关) ----
 p.E_Si = 0;  p.E_Cr = 0;  p.E_mag = 0.0;  p.E_spin = 0;
@@ -95,6 +97,11 @@ p.kRobin = 0.4;
 % O场(水归一)与金属(site fraction)的原子当量换算: rOM = C_O,ref/Nden
 % 满水通道 O 密度锚 ~33/87≈0.38; 稀载流子则 <<1。=1 完全还原旧行为。
 p.rOM = 22/87;
+% ---- 界面元素分配模式开关 (rhs_aks) ----
+%   'aziz'   : 界面扫掠俘获 (Aziz 型, 用下面的 v_rearr), 不用 GB 快速扩散
+%   'gbdiff' : GB 快速扩散 (用下面的 fGB / gb_mouth_C / kRobin_gb), 不用俘获
+%   'both'   : 两者都开
+p.interface_mode = 'aziz';
 % ---- 界面扫掠与俘获 (rhs_aks 里的 rearrange 旋钮) ----
 % 扫掠速率 s = max_i R_i^ox/c_i 由氧化需求反推 (通常 = R_Cr/c_Cr, 早期 ~1e-2 nm/s,
 % 扩散限制后随 Jr 一起下降); 未氧化的扫入金属 (Fe/Ni) 按 λ = s/(s+v_rearr) 被俘获消耗。
@@ -102,6 +109,14 @@ p.rOM = 22/87;
 %   λ_i = s/(s + v_rearr_i)。某元素 = Inf 即该元素不俘获 (旧行为); = 0 即该元素全俘获。
 % 标量仍兼容 (rhs_aks 会展开成四个相同值)。待标定。
 p.v_rearr = [1e-7, 1e-7, 1e-5, 1e-7];   % nm/s, [Cr Fe Ni Si]
+% ---- 沿 GB 的金属扩散加速 (rhs_aks 里的 fGB 旋钮) ----
+% 氧化段 GB 列 i=1 上各元素沿 y 以 D_i^GB = fGB*D_iV*V_DBC (热平衡 V) 扩散, 散度进 J_r 与晶格速度。
+% 辐照段由 run_ckpt_decouple 强制 fGB=0。=0 即关闭。待标定。
+% 上端口部: Robin kRobin_gb/(sqrt(t)+10)*(gb_mouth_C - C), 外侧 = 水;
+% 下端 j=ny = 实时远场 (Dirichlet 取 (ny,1) 当前值, 不受 GB 扩散影响)。
+p.fGB = 3e8;
+p.gb_mouth_C = [0, 0, 0, 0];   % [Cr Fe Ni Si], 口部外侧金属浓度
+p.kRobin_gb = 0.05 * p.kRobin;  % 金属口部溶出系数, 比 O 的 kRobin 小一个量级
 
 % ---- 侧向闭合 (gb_channel_closure_derivation.pdf) ----
 %   'laplace': 整个氧化物截面为 O 通道, 半宽 L = max(slab, ΣL_k) (模型域是镜像一半,
