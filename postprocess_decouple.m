@@ -31,16 +31,21 @@ O_t       = Y2(b+     1:b+  ny,:);  Cr2O3_t   = Y2(b+  ny+1:b+2*ny,:);
 Fe3O4_t   = Y2(b+2*ny+1:b+3*ny,:);  FeCr2O4_t = Y2(b+3*ny+1:b+4*ny,:);
 SiO2_t    = Y2(b+4*ny+1:b+5*ny,:);
 
-% ---------- 派生量: 沿 GB 的有效 O 扩散系数 D_eff(y,t) ----------
-% 与 rhs_aks 用的是同一个 calc_DO (按通道半宽 chan_width 的体积分数混合), 逐元素可向量化。
-Deff_t = calc_DO(Cr2O3_t, Fe3O4_t, FeCr2O4_t, SiO2_t, ...
-                 p.DO0, p.slab, p.DCr2O3, p.DFe3O4, p.DFeCr2O4, p.DSiO2);   % ny x nt2
+% ---------- 派生量: 有效 O 扩散系数 Dx/Dy(y,t) ----------
+% 与 rhs_aks 用的是同一个 calc_DO: Dx 横穿通道 (串联, 侧向闭合用), Dy 沿 GB (并联, JO 用)。
+% 状态带 IA/IH (6N+7ny) 时按分层积分算, 否则退化为均匀层。Deff_t 沿用旧名 = Dy (沿 GB)。
+if size(Y2,1) >= b + 7*ny
+    IA_t = Y2(b+5*ny+1:b+6*ny,:);  IH_t = Y2(b+6*ny+1:b+7*ny,:);
+else
+    IA_t = [];  IH_t = [];
+end
+[Dx_t, Deff_t] = calc_DO(Cr2O3_t, Fe3O4_t, FeCr2O4_t, SiO2_t, IA_t, IH_t, p);   % ny x nt2
 
 % ---------- 落盘: 氧化段完整轨迹 ----------
 t_out = t2;
 save(fullfile(outdir,'fields_timeseries.mat'), ...
      'V_t','I_t','Cr_t','Fe_t','Ni_t','Si_t', ...
-     'O_t','Cr2O3_t','Fe3O4_t','FeCr2O4_t','SiO2_t','Deff_t','t_out','p','-v7.3');
+     'O_t','Cr2O3_t','Fe3O4_t','FeCr2O4_t','SiO2_t','Deff_t','Dx_t','IA_t','IH_t','t_out','p','-v7.3');
 
 % ---------- 落盘: 氧化段末态 (生产同名) ----------
 writematrix(V_t (:,:,end), fullfile(outdir,'V_final.csv'));
@@ -55,6 +60,7 @@ writematrix(Fe3O4_t  (:,end), fullfile(outdir,'Fe3O4_final.csv'));
 writematrix(FeCr2O4_t(:,end), fullfile(outdir,'FeCr2O4_final.csv'));
 writematrix(SiO2_t   (:,end), fullfile(outdir,'SiO2_final.csv'));
 writematrix(Deff_t   (:,end), fullfile(outdir,'Deff_final.csv'));
+writematrix(Dx_t     (:,end), fullfile(outdir,'Dx_final.csv'));
 
 % ---------- 落盘: 辐照段末态 (RIS 对标) ----------
 writematrix(V_1 (:,:,end), fullfile(outdir,'V_irrfinal.csv'));

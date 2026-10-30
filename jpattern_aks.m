@@ -1,4 +1,8 @@
-function JP = jpattern_aks(nx, ny)
+function JP = jpattern_aks(nx, ny, n1D)
+% n1D = 1D 场个数: 5 = O + 4 氧化物 (旧驱动, 缺省); 7 = 再加 IA/IH 两个分层积分 (decouple)。
+% IA/IH 经 Dx -> solve_mu -> J_r 影响 j 行全部 2D 场, 经 Dy -> JO 影响 j±1 的 O, 所以和
+% 氧化物场同一套耦合 (row_all / col_gb / 三对角)。
+if nargin < 3 || isempty(n1D), n1D = 5; end
 N = nx * ny;
 % --- 2D 场自耦合：5 点模板 ---
 e2D = ones(N, 1);
@@ -30,11 +34,11 @@ col_gb  = [speye(ny), sparse(ny, N - ny)];       % 1D 变量 j -> (j,1) 列
 % 还依赖 (j±1,1) 的金属, 再经 lattice_velocity_x 的广播进入 j 行所有列 (同上面 row_all 的道理)。
 G2D  = repmat([B1D, sparse(ny, N - ny)], nx, 1); % (j,i) <- (j',1), |j-j'|<=1
 JP_22 = kron(ones(6, 6), double((B2D + G2D) ~= 0));   % 6N  × 6N
-% 1D-1D: 5×5 全耦合 (O + 4 氧化物)，每块 ny×ny
-JP_11 = kron(ones(5, 5), B1D);                   % 5ny × 5ny
+% 1D-1D: n1D×n1D 全耦合 (O + 4 氧化物 [+ IA, IH])，每块 ny×ny
+JP_11 = kron(ones(n1D, n1D), B1D);               % n1D*ny × n1D*ny
 % 2D-1D / 1D-2D: 不再互为转置，两个方向的物理依赖本来就不对称
-JP_21 = kron(ones(6, 5), row_all);               % 6N  × 5ny   ∂(2D)/∂(1D)
-JP_12 = kron(ones(5, 6), col_gb);                % 5ny × 6N    ∂(1D)/∂(2D)
+JP_21 = kron(ones(6, n1D), row_all);             % 6N  × n1D*ny   ∂(2D)/∂(1D)
+JP_12 = kron(ones(n1D, 6), col_gb);              % n1D*ny × 6N    ∂(1D)/∂(2D)
 % 拼总
 JP = [JP_22, JP_21;
       JP_12, JP_11];

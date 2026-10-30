@@ -17,6 +17,15 @@ CCr2O3   = y(base +   ny + 1 : base + 2*ny);
 CFe3O4   = y(base + 2*ny + 1 : base + 3*ny);
 CFeCr2O4 = y(base + 3*ny + 1 : base + 4*ny);
 CSiO2    = y(base + 4*ny + 1 : base + 5*ny);
+% 氧化物分层的 O 扩散积分 IA = ∫Deff dx, IH = ∫dx/Deff (见 calc_DO)。只有 decouple 驱动
+% (状态长 6N+7ny) 带这两个场; 旧驱动 (6N+5ny) 不带, calc_DO 退化为均匀层。
+has_IO = numel(y) == base + 7*ny;
+if has_IO
+    IA = y(base + 5*ny + 1 : base + 6*ny);
+    IH = y(base + 6*ny + 1 : base + 7*ny);
+else
+    IA = [];  IH = [];
+end
 
 % 强制 Dirichlet（按整条边）
 % GB 缺陷汇 (i=1): p.gb_defect_bc = 'robin'  ->  J·n = k_gb*(C - C_eq), 见下面 J_gbV/J_gbI
@@ -56,15 +65,17 @@ if isfield(p,'logfloor_C'), cFl = p.logfloor_C; else, cFl = 1e-12; end
 % 缺省 'node', 使旧 checkpoint 里的 p 行为不变。
 if isfield(p,'closure') && ~isempty(p.closure), closure = p.closure; else, closure = 'node'; end
 use_mu = strcmp(closure, 'laplace');
+% Dx (横穿通道, 串联) 进侧向闭合; Dy (沿 GB, 并联) 进下面的 JO。
+[Dx_n, Dy_n] = calc_DO(CCr2O3, CFe3O4, CFeCr2O4, CSiO2, IA, IH, p);
 q_all = zeros(ny, 4);   u2_all = zeros(ny,1);   nbad = 0;
 for j = 1:ny
     if use_mu
         [qj, uuj, okj] = solve_mu(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
-                                  CCr2O3(j), CSiO2(j), CFe3O4(j), CFeCr2O4(j), p, []);
+                                  CCr2O3(j), CSiO2(j), CFe3O4(j), CFeCr2O4(j), p, [], Dx_n(j));
     else
         % okj 只用于计数, solve_node 的行为完全没动 (E 未修)
         [qj, uuj, okj] = solve_node(CO(j), CCr(j,1), CFe(j,1), CNi(j,1), CSi(j,1), ...
-                                    CCr2O3(j), CSiO2(j), CFe3O4(j), CFeCr2O4(j), p, []);
+                                    CCr2O3(j), CSiO2(j), CFe3O4(j), CFeCr2O4(j), p, [], Dx_n(j));
     end
     q_all(j,:) = qj';   u2_all(j) = uuj(2);
     if ~okj, nbad = nbad + 1; end
@@ -185,16 +196,14 @@ J_V_y  = J_V_diff_y + J_V_drift_y;
 J_I_y  = J_I_diff_y + J_I_drift_y;
 
 % ---------------- 沿 GB 的 O 输运 (式 (13)) ----------------
-% 通道半宽 L 与有效扩散系数 D_eff 用同一个宽度 chan_width(S, slab) (见 calc_DO)。
+% 通道半宽 L 与有效扩散系数用同一个宽度 chan_width(S, slab); 沿 GB 用 y 方向 (并联) 的 Dy。
 S_ox = CCr2O3 + CFe3O4 + CFeCr2O4 + CSiO2;
 if use_mu
     [L_n, dLdS] = chan_width(S_ox, p.slab);
 else
     L_n = p.slab * ones(ny,1);   dLdS = zeros(ny,1);   % 旧模型: 通道宽度固定, 无稀释
 end
-D_n = calc_DO(CCr2O3, CFe3O4, CFeCr2O4, CSiO2, ...
-              p.DO0, p.slab, p.DCr2O3, p.DFe3O4, p.DFeCr2O4, p.DSiO2);
-J_O = JO(CO, D_n, L_n, p.dy);
+J_O = JO(CO, Dy_n, L_n, p.dy);
 
 % ---------------- 时间导数 ----------------
 dCr = dsolutedt(J_Cr_x, J_Cr_y, p.dx, p.dy, J_r_Cr);
@@ -242,6 +251,21 @@ dSi(:,nx) = 0;
 % 打包
 dydt = [dV(:); dI(:); dCr(:); dFe(:); dNi(:); dSi(:); dO(:); ...
         dCr2O3(:); dFe3O4(:); dFeCr2O4(:); dSiO2(:)];
+
+% 分层积分: 新层长在 x = S (向内生长), 成分 = 各氧化物的瞬时生成比例, 生成后冻结。
+%   dIA/dt = Deff_new * dS/dt,   dIH/dt = (dS/dt) / Deff_new
+% q 可有 Ppos 的 -eps/2 级负值, 比例只取正的生成速率; 无生成时 dS/dt ~ 0, 两项均 ~ 0。
+if has_IO
+    dLk  = [dCr2O3, dFe3O4, dFeCr2O4, dSiO2];             % ny×4
+    dLp  = max(dLk, 0);
+    fnew = dLp ./ max(sum(dLp, 2), realmin);              % ny×4, 新层体积分数
+    Dnew = oxide_Deff(fnew(:,1), fnew(:,2), fnew(:,3), fnew(:,4), p);
+    Dnew(sum(dLp, 2) <= 0) = p.DO0;                       % 无生成: 任取有限值, 乘的 dS/dt ~ 0
+    dSdt = sum(dLk, 2);
+    dIA  = Dnew .* dSdt;
+    dIH  = dSdt ./ Dnew;
+    dydt = [dydt; dIA(:); dIH(:)];
+end
 
 if any(~isfinite(dydt))
     % 原来这里只 fprintf 然后把 NaN 原样返回给 ode15s。那是最坏的处理:

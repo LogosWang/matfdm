@@ -1,5 +1,5 @@
 function [q, uu, ok, mu, Jr, L, D] = solve_mu(CO_bar, CCr, CFe_m, CNi_m, CSi, ...
-                                             LCr2O3, LSiO2, Lmag, Lspin, p, mu0)
+                                             LCr2O3, LSiO2, Lmag, Lspin, p, mu0, Dx)
 % 界面代数, Laplace 基模闭合版 (替代 solve_node)。签名前 10 个参数与 solve_node
 % 一致, 返回的 q / uu / ok 也同义, rhs_aks 里可以直接切换:
 %   q  = [qCr;qSi;qMag;qSpin]   (O 场单位 × nm/s, 与 solve_node 同)
@@ -13,8 +13,13 @@ function [q, uu, ok, mu, Jr, L, D] = solve_mu(CO_bar, CCr, CFe_m, CNi_m, CSi, ..
 
 S = LCr2O3 + LSiO2 + Lmag + Lspin;
 L = chan_width(S, p.slab);
-D = calc_DO(LCr2O3, Lmag, Lspin, LSiO2, ...
-            p.DO0, p.slab, p.DCr2O3, p.DFe3O4, p.DFeCr2O4, p.DSiO2);
+% 侧向闭合是横穿通道的输运, 用 x 方向 (串联) 的 Dx。rhs 传入按分层历史积分的 Dx;
+% 未传 (单点调用) 时按当前总厚的均匀层算 (calc_DO 退化分支)。
+if nargin >= 12 && ~isempty(Dx)
+    D = Dx;
+else
+    D = calc_DO(LCr2O3, Lmag, Lspin, LSiO2, [], [], p);
+end
 
 % ---- 速率前因子 (与 solve_node 完全相同) ----
 Sfc   = CCr*CFe_m / (CCr + 2*CFe_m + p.epsC);   % FeCr2O4: Fe-Cr 共消耗 (1 Fe : 2 Cr)

@@ -50,7 +50,7 @@ if isfield(p,'def_floor_I'), floorI = p.def_floor_I; else, floorI = p.I_init; en
 p1 = p;  p1.O_DCB = 0;  p1.fGB = 0;            % 辐照段: 无 O, 纯 RIS, 无 GB 扩散加速
 p2 = p;  p2.dose_rate = 0;  p2.O_DCB = 1;     % 氧化段: 零剂量, O 开
 
-N  = p.nx*p.ny;   M = 6*N + 5*p.ny;
+N  = p.nx*p.ny;   M = 6*N + 7*p.ny;   % 末尾 2*ny 为氧化物分层 O 扩散积分 IA/IH (见 calc_DO)
 nS = p.num_ckpt;
 t1 = linspace(0, p.irr_time, nS+1);
 t2 = linspace(0, p.oxi_time, nS+1);
@@ -60,12 +60,17 @@ absTol = build_abstol(M, N, p);
 nnIdx  = build_nonneg(M, N, p);
 maxStp = getf(p,'max_step', 3600);
 opts = odeset('RelTol',rtol, 'AbsTol',absTol, 'NonNegative',nnIdx, ...
-              'JPattern',jpattern_aks(p.nx,p.ny), 'BDF','on', 'MaxOrder',2, ...
+              'JPattern',jpattern_aks(p.nx,p.ny,7), 'BDF','on', 'MaxOrder',2, ...
               'MaxStep',maxStp, 'Stats','off');
 
 % ---------- 载入 checkpoint (只可能是氧化段) 或从头 ----------
 if isfile(ckpt)
     S = load(ckpt);
+    if numel(S.y0) ~= M
+        error('run_ckpt_decouple:ckptLayout', ...
+            ['存档状态长 %d, 当前布局要 %d (6N+7ny, 含 IA/IH)。\n' ...
+             '  这是加 IA/IH 之前的旧 checkpoint, 不能续算, 请删掉 %s'], numel(S.y0), M, ckpt);
+    end
     kstart = S.kdone + 1;  y0 = S.y0;  Y1 = S.Y1;  Y2 = S.Y2;
     t1 = S.t1;  t2 = S.t2;  p1 = S.p1;  p2 = S.p2;
     % 数值参数不随 checkpoint 冻结: 用当前 build_p_* 的值覆盖存档里的旧值。
@@ -193,7 +198,8 @@ CSi=ones(ny,nx)*p.Si_init; CSi(:,nx)=p.Si_DCB;
 CO=ones(ny,1)*p.O_init;
 CCr2O3=ones(ny,1)*p.Cr2O3_init; CFe3O4=ones(ny,1)*p.Fe3O4_init;
 CFeCr2O4=ones(ny,1)*p.FeCr2O4_init; CSiO2=ones(ny,1)*p.SiO2_init;
-y0=[V(:);I(:);CCr(:);CFe(:);CNi(:);CSi(:);CO(:);CCr2O3(:);CFe3O4(:);CFeCr2O4(:);CSiO2(:)];
+IA=zeros(ny,1); IH=zeros(ny,1);         % 无氧化物: 两个分层积分为 0
+y0=[V(:);I(:);CCr(:);CFe(:);CNi(:);CSi(:);CO(:);CCr2O3(:);CFe3O4(:);CFeCr2O4(:);CSiO2(:);IA;IH];
 end
 
 function absTol = build_abstol(M, N, p)
@@ -214,7 +220,9 @@ absTol = zeros(M,1);
 absTol(      1 : 2*N)      = aD;                             % V, I
 absTol(2*N + 1 : 6*N)      = getf(p,'atol_metal', 1e-7);     % Cr,Fe,Ni,Si
 absTol(6*N + 1 : 6*N+p.ny) = getf(p,'atol_O',     1e-6);     % O
-absTol(6*N + p.ny + 1 : M) = getf(p,'atol_oxide', 1e-5);     % 4 氧化物
+absTol(6*N + p.ny + 1 : 6*N + 5*p.ny) = getf(p,'atol_oxide', 1e-5);   % 4 氧化物
+absTol(6*N + 5*p.ny + 1 : 6*N + 6*p.ny) = getf(p,'atol_IA', 1e-12);   % IA = ∫Deff dx (nm^3/s)
+absTol(6*N + 6*p.ny + 1 : M)            = getf(p,'atol_IH', 1e-3);    % IH = ∫dx/Deff (s/nm)
 end
 
 function idx = build_nonneg(M, N, p)

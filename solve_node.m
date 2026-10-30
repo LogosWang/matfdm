@@ -1,5 +1,5 @@
 function [q, uu, ok] = solve_node(CO_gb, CCr, CFe_m, CNi_m, CSi, ...
-                                  LCr2O3, LSiO2, Lmag, Lspin, p, uu0)
+                                  LCr2O3, LSiO2, Lmag, Lspin, p, uu0, Dx)
 % 单层氧化物界面代数: 唯一未知量 u = 金属/氧化物界面处 O 活度。
 %   膜内输运  J = g*(CO_gb - u),  g = D_mix/L
 %   L     = 四种氧化物总厚 + Lmin 正则化
@@ -13,8 +13,12 @@ function [q, uu, ok] = solve_node(CO_gb, CCr, CFe_m, CNi_m, CSi, ...
  
 % ---- 单层电导 ----
 L = LCr2O3 + LSiO2 + Lmag + Lspin + p.Lmin;
-D = calc_DO(LCr2O3, Lmag, Lspin, LSiO2, ...
-            p.DO0, p.slab, p.DCr2O3, p.DFe3O4, p.DFeCr2O4, p.DSiO2);
+% 膜内输运横穿氧化物, 用 x 方向 (串联) 的 Dx; 未传时按当前总厚的均匀层算。
+if nargin >= 12 && ~isempty(Dx)
+    D = Dx;
+else
+    D = calc_DO(LCr2O3, Lmag, Lspin, LSiO2, [], [], p);
+end
 g = D / L;
  
 % ---- 供给与速率系数 (u 无关, 提出循环) ----

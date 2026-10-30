@@ -83,8 +83,11 @@ p.Cr2O3_init = 0.0;  p.Fe3O4_init = 0.0;
 p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
-p.DCr2O3O  = 2e-06;      % O 穿内层
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 5e-4;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 0.15;
+p.DCr2O3O  = 8e-05;      % O 穿内层
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 5e-3;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 1.0;
+% 氧化物局部 Deff(x) = (DCr2O3*L_Cr2O3 + DFe3O4*L_Fe3O4 + ...)/ΣL + DSiO2*(L_SiO2/ΣL)^m (oxide_Deff),
+% SiO2 为 Archie 形式, m = 1 即纯并联。x 方向 Dx = L/∫dx/Deff, y 方向 Dy = ∫Deff dx/L (calc_DO)。
+p.archie_m = 2;
  
 % ---- 界面动力学 (nm/s) ----
 p.kCr = 6e-4;  p.kSi = 7e-4;  p.kFe = 5e-5;  p.kspin = 0;   % 原 2e-5; spinel 关闭
