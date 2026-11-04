@@ -54,13 +54,13 @@ p.kgbV = 30000;   p.kgbI = 200000;
 p.Ks = 0.0;
 DCrV = 5e4;
 DFeV = 3.5e4;
-DNiV = 2.5e4;
+DNiV = 2.4e4;
 DSiV = 5e4;
 p.DV = [DCrV, DFeV, DNiV,DSiV];
-DCrI = 2.5e5;
-DFeI = 2.5e5;
-DNiI = 2.5e5;
-DSiI = 1.5e6;
+DCrI = 3e5;
+DFeI = 3e5;
+DNiI = 3e5;
+DSiI = 1.25e6;
 p.DI = [DCrI,DFeI,DNiI,DSiI];
 p.f0V = 0.78;
 p.f0I = 0.44;
@@ -74,17 +74,20 @@ p.oxi_time = 500*60*60;
 p.recomb_rate = 1e4;
  
 % ---- 金属 / O 初值与边界 ----
-p.Cr_init = 0.2;   p.Cr_DCB = 0.2;
-p.Fe_init = 0.7083;   p.Fe_DCB = 0.7083;
-p.Ni_init = 0.089;   p.Ni_DCB = 0.089;
-p.Si_init = 0.0027;   p.Si_DCB = 0.0027;
+% 304NG 体相成分 (Deng 2017, wt%: Cr 19.51, Ni 8.87, Si 0.27, Mn 1.73, C 0.04, P 0.021,
+% S 0.002, Co 0.04, Fe bal.) 换算成四元素位分数: C 为间隙原子不占格点, Mn/Co/P/S 并入 Fe。
+% 原值 (0.2 / 0.7083 / 0.089 / 0.0027) 直接取的 wt%/100, Si 低了一倍。2026-11-03 改。
+p.Cr_init = 0.2069;   p.Cr_DCB = 0.2069;
+p.Fe_init = 0.7045;   p.Fe_DCB = 0.7045;
+p.Ni_init = 0.0833;   p.Ni_DCB = 0.0833;
+p.Si_init = 0.0053;   p.Si_DCB = 0.0053;
 p.O_init  = 0.0;   p.O_DCB  = 1.0;
 p.Cr2O3_init = 0.0;  p.Fe3O4_init = 0.0;
 p.FeCr2O4_init = 0.0; p.SiO2_init = 0.0;
 
 % ---- 穿膜输运 (nm^2/s; 1e-17 cm2/s = 1e-3 nm2/s) ----
-p.DCr2O3O  = 8e-05;      % O 穿内层
-p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 5e-3;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 1.0;
+p.DCr2O3O  = 6e-05;      % O 穿内层
+p.DCr2O3 = p.DCr2O3O;  p.DFe3O4 = 5e-3;  p.DFeCr2O4 = 1e-05;  p.DSiO2 = 0.8;
 % 氧化物局部 Deff(x) = (DCr2O3*L_Cr2O3 + DFe3O4*L_Fe3O4 + ...)/ΣL + DSiO2*(L_SiO2/ΣL)^m (oxide_Deff),
 % SiO2 为 Archie 形式, m = 1 即纯并联。x 方向 Dx = L/∫dx/Deff, y 方向 Dy = ∫Deff dx/L (calc_DO)。
 p.archie_m = 2;
@@ -111,7 +114,7 @@ p.interface_mode = 'aziz';
 % 每个元素单独一个 rearrange 速度, 顺序 [Cr Fe Ni Si] (与 rhs_aks 里 c_int/R_ox 的列序一致):
 %   λ_i = s/(s + v_rearr_i)。某元素 = Inf 即该元素不俘获 (旧行为); = 0 即该元素全俘获。
 % 标量仍兼容 (rhs_aks 会展开成四个相同值)。待标定。
-p.v_rearr = [1e-7, 1e-7, 1e-5, 1e-7];   % nm/s, [Cr Fe Ni Si]
+p.v_rearr = [1e-7, 1e-7, 1.5e-5, 1e-7];   % nm/s, [Cr Fe Ni Si]
 % ---- 沿 GB 的金属扩散加速 (rhs_aks 里的 fGB 旋钮) ----
 % 氧化段 GB 列 i=1 上各元素沿 y 以 D_i^GB = fGB*D_iV*V_DBC (热平衡 V) 扩散, 散度进 J_r 与晶格速度。
 % 辐照段由 run_ckpt_decouple 强制 fGB=0。=0 即关闭。待标定。

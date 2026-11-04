@@ -29,6 +29,11 @@ end
 if ~isempty(getf(p,'handoff_flat_solute',''))
     tag = [tag '_flat' p.handoff_flat_solute];
 end
+% 氧化时长不是默认 500 h 的结果另存到 ..._<小时数>, 如 dose0.5_laplace_1500
+oxi_h = p.oxi_time/3600;
+if abs(oxi_h - 500) > 1e-6
+    tag = [tag sprintf('_%g', oxi_h)];
+end
 outdir  = fullfile(codedir, 'decouple', ['dose' tag]);
 ckptdir = fullfile(codedir, 'checkpoint', ['decouple_dose' tag]);
 if ~exist(outdir,'dir'),  mkdir(outdir);  end
@@ -174,7 +179,7 @@ for k = kstart:nS
             k, nS, t2(k+1), toc(tw), toc(tStart));
     if toc(tStart) > WALL_BUDGET
         fprintf('[wall] 预算耗尽, 已存 checkpoint, 退出等重排\n');
-        if batchStartupOptionUsed, exit(0); else, return; end
+        if batchStartupOptionUsed && ~getf(p,'no_exit',false), exit(0); else, return; end
     end
 end
 
@@ -183,7 +188,7 @@ fprintf('[done] 两段完成, 后处理 -> %s\n', outdir);
 sel = round(linspace(1, nS+1, 10*p.num_output+1));
 postprocess_decouple(Y1(:,sel), t1(sel), Y2(:,sel), t2(sel), p1, outdir);
 delete(ckpt);
-if batchStartupOptionUsed, exit(0); end
+if batchStartupOptionUsed && ~getf(p,'no_exit',false), exit(0); end
 end
 
 % =====================================================================
