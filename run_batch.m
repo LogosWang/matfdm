@@ -1,4 +1,4 @@
-function run_batch(jobs, nworkers)
+function run_batch(jobs, nworkers, outroot)
 % 一个 parpool 同时跑 decouple 与非 decouple 作业。入口脚本见 main_all.m。
 %
 % jobs: cell 表, 每行 {mode, value, flat, oxi_h, num_ckpt}
@@ -7,20 +7,29 @@ function run_batch(jobs, nworkers)
 %   flat     decouple 的 Cr/Si 解耦测试: 'Cr' / 'Si' / '' (不重置); couple 不用
 %   oxi_h    氧化时长 (h), [] = build_p_decouple 默认
 %   num_ckpt 窗数, [] = build_p_decouple 默认
+%   rate     可选第 6 列, decouple 预辐照剂量率 (dpa/s), [] 或不写 = build_p_decouple 默认; couple 不用
 % 输出目录由 run_ckpt_decouple / run_ckpt 决定, 作业之间互不覆盖。
+% outroot  可选, 如 'couplecompare': 全部结果改存 <codedir>/<outroot>/rate<剂量率>_dose<剂量>/{couple,decouple}/
 %
 % 单个作业报错不影响其他作业, 最后统一汇报。worker 上的 fprintf 要等该作业结束才显示,
 % 运行中的进度看 checkpoint.mat 的修改时间。
 
+if nargin < 3, outroot = ''; end
 nj = size(jobs, 1);
 ps = cell(nj, 1);  names = cell(nj, 1);  iscouple = false(nj, 1);
 for k = 1:nj
-    [mode, value, flat, oxi_h, nck] = jobs{k, :};
+    [mode, value, flat, oxi_h, nck] = jobs{k, 1:5};
+    if size(jobs, 2) >= 6, drate = jobs{k, 6}; else, drate = []; end
     switch mode
         case 'decouple'
             p = build_p_decouple(value);
             p.handoff_flat_solute = flat;
             names{k} = sprintf('decouple dose=%g flat=%s', value, flat);
+            if ~isempty(drate)              % 预辐照剂量率覆盖, irr_time 跟着重算
+                p.dose_rate = drate;
+                p.irr_time  = p.dose / drate;
+                names{k} = sprintf('%s rate=%g', names{k}, drate);
+            end
         case 'couple'
             p = build_p(value);
             iscouple(k) = true;
@@ -34,7 +43,8 @@ for k = 1:nj
         names{k} = sprintf('%s %gh', names{k}, oxi_h);
     end
     if ~isempty(nck), p.num_ckpt = nck; end
-    p.no_exit = true;                   % 不让 run_ckpt* 在 batch 模式下 exit 掉 worker
+    if ~isempty(outroot), p.outroot = outroot; end
+    p.no_exit = true;                  % 不让 run_ckpt* 在 batch 模式下 exit 掉 worker
     ps{k} = p;
     fprintf('[batch] %2d  %s\n', k, names{k});
 end

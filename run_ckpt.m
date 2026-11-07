@@ -16,6 +16,14 @@ codedir = fileparts(mfilename('fullpath'));
 tag     = dose_tag(p.dose_rate);
 ckptdir = fullfile(codedir, 'checkpoint', ['dose' tag]);
 outdir  = fullfile(codedir, ['results_dose' tag]);
+% p.outroot 非空 (如 'couplecompare'): 按累计剂量分组, 与 decouple 对照放在一起
+%   结果 <codedir>/<outroot>/rate<剂量率>_dose<剂量>/couple/, checkpoint 单独一份, 不碰默认目录
+outroot = getf(p,'outroot','');
+if ~isempty(outroot)
+    sub     = sprintf('rate%g_dose%g', p.dose_rate, p.dose_rate*p.t_end);
+    outdir  = fullfile(codedir, outroot, sub, 'couple');
+    ckptdir = fullfile(codedir, 'checkpoint', [outroot '_' sub '_couple']);
+end
 if ~exist(ckptdir,'dir'), mkdir(ckptdir); end
 if ~exist(outdir,'dir'),  mkdir(outdir);  end
 ckpt = fullfile(ckptdir, 'checkpoint.mat');

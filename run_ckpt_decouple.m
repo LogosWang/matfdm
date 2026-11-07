@@ -36,6 +36,14 @@ if abs(oxi_h - 500) > 1e-6
 end
 outdir  = fullfile(codedir, 'decouple', ['dose' tag]);
 ckptdir = fullfile(codedir, 'checkpoint', ['decouple_dose' tag]);
+% p.outroot 非空 (如 'couplecompare'): 结果 <codedir>/<outroot>/rate<剂量率>_dose<剂量>/decouple/,
+% 与同剂量率同剂量的 couple 对照放在一起; checkpoint 单独一份, 不碰默认目录
+outroot = getf(p,'outroot','');
+if ~isempty(outroot)
+    sub     = sprintf('rate%g_dose%g', p.dose_rate, p.dose);
+    outdir  = fullfile(codedir, outroot, sub, 'decouple');
+    ckptdir = fullfile(codedir, 'checkpoint', [outroot '_' sub '_decouple']);
+end
 if ~exist(outdir,'dir'),  mkdir(outdir);  end
 if ~exist(ckptdir,'dir'), mkdir(ckptdir); end
 ckpt = fullfile(ckptdir, 'checkpoint.mat');
